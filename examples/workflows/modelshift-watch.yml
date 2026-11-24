@@ -1,0 +1,49 @@
+# Daily check: opens (or updates) one GitHub issue when a model your code uses is retiring,
+# has been removed, or is being silently served as a different model. Closes it when all clear.
+# Copy to .github/workflows/modelshift-watch.yml
+name: modelshift watch
+
+on:
+  schedule: [{ cron: "0 7 * * *" }]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: scan
+        uses: angledsapiens/modelshift@v0
+        with:
+          probe: "true" # live model lists + 1-token probes for unlisted models (fractions of a cent)
+          fail-on: retiring
+          fail: "false" # report through the issue instead of a red run
+        env:
+          # Add the keys for the providers you use. DeepInfra and OpenRouter lists work without one,
+          # but probes need a key.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPINFRA_API_KEY: ${{ secrets.DEEPINFRA_API_KEY }}
+
+      - name: Open or update the tracking issue
+        if: steps.scan.outputs.status == 'flagged'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ steps.scan.outputs.markdown }}
+        run: |
+          title="modelshift: models in this repo are retiring, removed or redirected"
+          n=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          if [ -n "$n" ]; then gh issue edit "$n" --body-file "$BODY"; else gh issue create --title "$title" --body-file "$BODY"; fi
+
+      - name: Close the issue when all clear
+        if: steps.scan.outputs.status == 'ok'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="modelshift: models in this repo are retiring, removed or redirected"
+          n=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          [ -z "$n" ] || gh issue close "$n" --comment "All model ids are clear as of $(date -u +%F)."

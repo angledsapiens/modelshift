@@ -59,3 +59,26 @@ export function runSummaryText(r: RunResult): string {
   }
   return lines.join("\n");
 }
+
+/** Compact markdown for PR comments and GitHub step summaries. */
+export function runMarkdown(results: RunResult[]): string {
+  const icon: Record<string, string> = { "likely-safe": "🟢", review: "🟡", unsafe: "🔴" };
+  const lines: string[] = ["### modelshift migration check", ""];
+  for (const r of results) {
+    const a = r.analysis;
+    lines.push(`**\`${r.meta.baseline}\` → \`${r.meta.candidate}\`**: ${icon[a.verdict]} ${VERDICT[a.verdict]} (confidence: ${a.confidence}; ${r.runs.length} samples × ${r.meta.repeats} repeats)`);
+    lines.push("");
+    for (const reason of a.reasons) lines.push(`- ${reason}`);
+    lines.push("");
+    lines.push("| Check | Baseline | Candidate | Change (95% CI) | Noise | |");
+    lines.push("|---|---:|---:|---|---:|---|");
+    for (const m of a.metrics) {
+      const ci = m.mode === "paired" ? `${signed(m.delta)} [${pct(m.ci[0])}, ${pct(m.ci[1])}]` : "candidate only";
+      lines.push(`| ${m.name} | ${pct(m.baseline)} | ${pct(m.candidate)} | ${ci} | ${Number.isFinite(m.noiseFloor) ? "±" + pct(m.noiseFloor) : "—"} | ${m.regression ? "❌" : "✅"} |`);
+    }
+    lines.push(`| latency (median) | ${Math.round(a.perf.baselineLatencyMs)}ms | ${Math.round(a.perf.candidateLatencyMs)}ms | | | |`);
+    lines.push("");
+  }
+  lines.push("<sub>A check fails only when the 95% CI of the change is entirely on the worse side and larger than the baseline's own run-to-run variation. Never a guarantee.</sub>");
+  return lines.join("\n");
+}

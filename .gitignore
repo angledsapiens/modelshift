@@ -4,3 +4,4 @@ dist/
 *.log
 modelshift-results*.json
 modelshift-samples.jsonl
+modelshift-report*.html

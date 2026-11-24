@@ -2,11 +2,14 @@ import type { ChatProvider, ChatResponse } from "../providers/index.js";
 import type { Sample } from "../capture.js";
 import { bootstrapMeanCI, mean, meanPairwiseAbsDiff, median } from "./stats.js";
 import { assertionsPass, isJson, isRefusal, mode, outputRepr, similarity, toolSignature, topLevelKeys } from "./checks.js";
+import type { JudgeScores } from "./judge.js";
 
 export interface SampleRun {
   id: string;
   baseline: ChatResponse[];
   candidate: ChatResponse[];
+  /** Present when the run was judged by an LLM (--judge). */
+  judge?: JudgeScores;
 }
 
 export interface RunMeta {
@@ -16,6 +19,7 @@ export interface RunMeta {
   startedAt: string;
   finishedAt?: string;
   toolVersion: string;
+  judge?: string;
 }
 
 export interface MetricResult {
@@ -55,7 +59,7 @@ export type Prices = Record<string, { input: number; output: number }>; // USD p
 
 /* ------------------------------------------------------------------ execution */
 
-async function pool<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
+export async function pool<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
   const out: T[] = new Array(tasks.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, async () => {
@@ -234,6 +238,9 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
     metrics.push({ name: def.name, description: def.description, direction: def.direction, samples: deltas.length, baseline: mean(bases), candidate: mean(cands), delta, ci, noiseFloor, regression, severity: "fail", mode: "paired" });
   }
 
+  const judgeMetric = judgeMetricOf(runs, examples);
+  if (judgeMetric) metrics.push(judgeMetric);
+
   // Behaviour drift: is the candidate less similar to the baseline than the baseline is to itself?
   const drifts: number[] = [];
   const selfs: number[] = [];
@@ -308,6 +315,53 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
   if (!reasons.length) reasons.push("No regression beyond the baseline's own run-to-run variation was detected.");
 
   return { metrics, drift, perf, verdict, confidence, reasons, examples };
+}
+
+/** LLM-judge agreement: candidate vs first baseline answer, against the baseline's agreement with itself. */
+function judgeMetricOf(runs: SampleRun[], examples: Analysis["examples"]): MetricResult | undefined {
+  const judged = runs.filter((r) => r.judge);
+  if (!judged.length) return undefined;
+  const spec = judged[0].judge!.judge;
+  const description = `LLM judge (${spec}) rates the answer an acceptable substitute for the baseline's answer.`;
+  const deltas: number[] = [];
+  const bases: number[] = [];
+  const cands: number[] = [];
+  const noises: number[] = [];
+  const candOnly: number[] = [];
+  for (const run of judged) {
+    const j = run.judge!;
+    const b = j.baseline.filter((v): v is number => v !== null);
+    const c = j.candidate.filter((v): v is number => v !== null);
+    if (!c.length) continue;
+    const bad = j.candidate.findIndex((v) => v === 0);
+    if (bad >= 0 && examples.filter((e) => e.metric === "judge").length < 3) {
+      const ref = j.reference === "baseline" ? trimOut(run.baseline.find((r) => !r.error)) : "[logged reference]";
+      examples.push({ id: run.id, metric: "judge", baseline: ref, candidate: trimOut(run.candidate.filter((r) => !r.error)[bad]) });
+    }
+    // Without baseline repeats there is no measure of the old model's self-agreement: judge the candidate alone.
+    if (!b.length) {
+      candOnly.push(mean(c));
+      continue;
+    }
+    const bm = mean(b);
+    const cm = mean(c);
+    bases.push(bm);
+    cands.push(cm);
+    deltas.push(cm - bm);
+    noises.push(meanPairwiseAbsDiff([1, ...b])); // the reference agrees with itself
+  }
+  if (deltas.length) {
+    const delta = mean(deltas);
+    const ci = bootstrapMeanCI(deltas);
+    const noiseFloor = mean(noises);
+    const regression = ci[1] < 0 && Math.abs(delta) > noiseFloor;
+    return { name: "judge", description, direction: "higher-is-better", samples: deltas.length, baseline: mean(bases), candidate: mean(cands), delta, ci, noiseFloor, regression, severity: "fail", mode: "paired" };
+  }
+  if (candOnly.length) {
+    const rate = mean(candOnly);
+    return { name: "judge", description, direction: "higher-is-better", samples: candOnly.length, baseline: NaN, candidate: rate, delta: NaN, ci: bootstrapMeanCI(candOnly), noiseFloor: NaN, regression: rate < 0.9, severity: "review", mode: "candidate-only" };
+  }
+  return undefined;
 }
 
 /** The served model, if it differs from the requested one (ignoring "models/" prefixes and dated-snapshot aliases). */

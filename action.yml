@@ -1,0 +1,96 @@
+name: modelshift
+description: Find retiring, removed or silently redirected LLM models in your repo, and test replacement models before switching.
+author: Angled Sapiens
+branding:
+  icon: shuffle
+  color: orange
+
+inputs:
+  command:
+    description: "scan (find at-risk model ids) or run (compare old vs new model on a samples file)"
+    default: scan
+  path:
+    description: "scan: directory to scan"
+    default: "."
+  live:
+    description: "scan: also check providers' live model lists (uses API keys from env)"
+    default: "false"
+  probe:
+    description: "scan: send a 1-token request for unlisted models to detect removals and silent redirects (implies live)"
+    default: "false"
+  providers:
+    description: "scan: comma-separated providers to check live (default: all relevant)"
+    default: ""
+  fail-on:
+    description: "scan: flag the result at this level: retired | retiring | any"
+    default: retiring
+  from:
+    description: "run: current model, provider:model"
+    default: ""
+  to:
+    description: "run: replacement model(s), comma-separated provider:model"
+    default: ""
+  samples:
+    description: "run: samples file"
+    default: modelshift-samples.jsonl
+  repeats:
+    description: "run: runs per sample per model"
+    default: "3"
+  judge:
+    description: "run: optional provider:model for the LLM-judge check"
+    default: ""
+  fail:
+    description: "Fail the step when the result is flagged (scan: at fail-on level; run: verdict unsafe)"
+    default: "true"
+  comment:
+    description: "On pull requests, post or update a PR comment with the summary (needs pull-requests: write)"
+    default: "false"
+  version:
+    description: "modelshift version from npm, or 'source' to build this action's own checkout"
+    default: latest
+
+outputs:
+  status:
+    description: "ok or flagged"
+    value: ${{ steps.ms.outputs.status }}
+  markdown:
+    description: Path to the markdown summary
+    value: ${{ steps.ms.outputs.markdown }}
+  report:
+    description: "run: path to the HTML report"
+    value: ${{ steps.ms.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - id: ms
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/scripts/action.sh"
+      env:
+        MS_COMMAND: ${{ inputs.command }}
+        MS_PATH: ${{ inputs.path }}
+        MS_LIVE: ${{ inputs.live }}
+        MS_PROBE: ${{ inputs.probe }}
+        MS_PROVIDERS: ${{ inputs.providers }}
+        MS_FAIL_ON: ${{ inputs.fail-on }}
+        MS_FROM: ${{ inputs.from }}
+        MS_TO: ${{ inputs.to }}
+        MS_SAMPLES: ${{ inputs.samples }}
+        MS_REPEATS: ${{ inputs.repeats }}
+        MS_JUDGE: ${{ inputs.judge }}
+        MS_FAIL: ${{ inputs.fail }}
+        MS_COMMENT: ${{ inputs.comment }}
+        MS_VERSION: ${{ inputs.version }}
+        MS_PR: ${{ github.event.pull_request.number }}
+        GH_TOKEN: ${{ github.token }}
+    - if: ${{ always() && inputs.command == 'run' && steps.ms.outputs.report != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: modelshift-report
+        path: ${{ runner.temp }}/modelshift/
+    - if: ${{ always() && steps.ms.outputs.exit != '' && steps.ms.outputs.exit != '0' }}
+      shell: bash
+      run: exit ${{ steps.ms.outputs.exit }}

@@ -1,0 +1,31 @@
+# Pull-request gate: when a PR changes your model config or test set, replay the samples on the
+# current and the proposed model, comment the verdict on the PR, upload the HTML report, and fail
+# if the new model is "not safe yet". Copy to .github/workflows/modelshift-gate.yml
+name: modelshift gate
+
+on:
+  pull_request:
+    paths:
+      - "modelshift-samples.jsonl"
+      - "config/models.*" # wherever your model ids live
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  migration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: angledsapiens/modelshift@v0
+        with:
+          command: run
+          from: openai:gpt-4o-2024-08-06
+          to: openai:gpt-6-luna
+          samples: modelshift-samples.jsonl
+          repeats: "2"
+          # judge: anthropic:claude-opus-5-5   # optional, for open-ended answers
+          comment: "true"
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

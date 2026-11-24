@@ -1,17 +1,11 @@
-import { resolve } from "node:path";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { loadCalendar, todayIso } from "./calendar.js";
-import { assess, scanRepo, sortAssessments } from "./scan/index.js";
-import { liveCheck, PROVIDERS, type ProviderName, type ProviderResult } from "./live/index.js";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { PROVIDERS, type ProviderName } from "./live/index.js";
 import { toMarkdown, toText } from "./format.js";
-import { captureFromText, parseSamplesJsonl, samplesToJsonl } from "./capture.js";
-import { createProvider, SUPPORTED_PROVIDERS } from "./providers/index.js";
-import { analyze, estimateRun, executeRun, type Prices, type RunResult } from "./run/index.js";
-import { compareCandidatesText, runSummaryText } from "./run/summary.js";
-import type { Host } from "./types.js";
-
-const VERSION = "0.1.0-dev";
-const CONFIRM_ABOVE_CALLS = 60;
+import { captureFromText, samplesToJsonl } from "./capture.js";
+import { SUPPORTED_PROVIDERS } from "./providers/index.js";
+import { compareCandidatesText, runMarkdown, runSummaryText } from "./run/summary.js";
+import { CONFIRM_ABOVE_CALLS, FAIL_LEVELS, loadResults, reportCore, runCore, scanCore, scanJson, SpendGuardError, UsageError, VERSION } from "./core.js";
+import { serveMcp } from "./mcp.js";
 
 const HELP = `modelshift ${VERSION} — know what breaks before your LLM is switched off
 
@@ -19,6 +13,8 @@ Usage:
   modelshift scan [path] [options]        Find model ids in a repo and check retirements
   modelshift capture <logs> [options]     Turn logged requests (JSONL/JSON) into a replayable test set
   modelshift run --from <p:m> --to <p:m>  Replay the test set on old vs new model and compare
+  modelshift report <results.json...>     Turn run results into a shareable single-file HTML report
+  modelshift mcp                          Start an MCP server (stdio) so agents can scan and test migrations
 
 scan options:
   --live                 Also query providers' live model lists (catches silent removals, e.g. DeepInfra).
@@ -50,9 +46,19 @@ run options:
   --concurrency <n>         Parallel requests (default 4)
   --temperature <t>         Override sample temperatures
   --prices <file>           JSON {"provider:model": {"input": usdPer1M, "output": usdPer1M}} for cost comparison
+  --judge <provider:model>  Also ask an LLM judge whether each answer is an acceptable substitute for the
+                            baseline's (for open-ended outputs). Calibrated against the baseline's agreement
+                            with itself, so use --repeats 2 or more.
   -o, --out <file>          Results JSON (default: modelshift-results.json)
+  --html <file>             Also write the HTML report
+  --markdown                Print a markdown summary (for PR comments / CI step summaries)
   --yes                     Skip the confirmation required above ${CONFIRM_ABOVE_CALLS} API calls
   --fail-on-unsafe          Exit 1 when the verdict is "unsafe" (for CI)
+
+report options:
+  -o, --out <file>          Output HTML (default: modelshift-report.html). Several results files = one report
+                            comparing the candidates.
+  --markdown                Print a markdown summary instead of writing HTML
 
   -h, --help             Show help.  -v, --version  Show version.
 `;
@@ -97,39 +103,23 @@ export function parseArgs(argv: string[]): Args {
 const err = (s: string) => process.stderr.write(s + "\n");
 
 async function cmdScan(args: Args): Promise<number> {
-  const root = resolve(args.path);
-  if (!existsSync(root) || !statSync(root).isDirectory()) {
-    err(`Not a directory: ${root}`);
+  if (args.failOn && !FAIL_LEVELS[args.failOn]) {
+    err(`--fail-on must be one of: retired, retiring, any`);
     return 1;
   }
-  const cal = loadCalendar(args.opts["--calendar"]);
-  const today = args.opts["--today"] ?? todayIso();
-  const findings = scanRepo(root, { includeMarkdown: args.flags.has("--include-markdown") });
-  let list = assess(findings, cal, today);
-  let results: ProviderResult[] = [];
-  if (args.live) {
-    const repoHosts = [...new Set(findings.flatMap((f) => f.hosts))] as Host[];
-    ({ assessments: list, results } = await liveCheck(list, { only: args.providers, repoHosts, probe: args.flags.has("--probe") }));
-  }
-  list = sortAssessments(list);
-
-  if (args.flags.has("--json")) process.stdout.write(JSON.stringify({ root, today, calendarUpdated: cal.updated, models: list, live: results.map((r) => ({ provider: r.provider, ok: r.ok, skipped: r.skipped, error: r.error, listed: r.models?.size })) }, null, 2) + "\n");
-  else if (args.flags.has("--markdown")) process.stdout.write(toMarkdown(list, { calendarUpdated: cal.updated }) + "\n");
-  else process.stdout.write(toText(list, results, { root, calendarUpdated: cal.updated, live: args.live }) + "\n");
-
-  if (args.failOn) {
-    const levels: Record<string, string[]> = {
-      retired: ["retired", "missing"],
-      retiring: ["retired", "missing", "redirected", "flagged", "retiring"],
-      any: ["retired", "missing", "redirected", "unlisted", "flagged", "retiring", "deprecated", "check"],
-    };
-    const bad = levels[args.failOn];
-    if (!bad) {
-      err(`--fail-on must be one of: retired, retiring, any`);
-      return 1;
-    }
-    if (list.some((a) => bad.includes(a.status))) return 1;
-  }
+  const res = await scanCore({
+    path: args.path,
+    live: args.live,
+    probe: args.flags.has("--probe"),
+    providers: args.providers,
+    includeMarkdown: args.flags.has("--include-markdown"),
+    calendar: args.opts["--calendar"],
+    today: args.opts["--today"],
+  });
+  if (args.flags.has("--json")) process.stdout.write(JSON.stringify(scanJson(res), null, 2) + "\n");
+  else if (args.flags.has("--markdown")) process.stdout.write(toMarkdown(res.models, { calendarUpdated: res.calendar.updated }) + "\n");
+  else process.stdout.write(toText(res.models, res.live, { root: res.root, calendarUpdated: res.calendar.updated, live: args.live }) + "\n");
+  if (args.failOn && res.models.some((m) => FAIL_LEVELS[args.failOn!].includes(m.status))) return 1;
   return 0;
 }
 
@@ -159,55 +149,68 @@ async function cmdRun(args: Args): Promise<number> {
     err(`Usage: modelshift run --from <provider:model> --to <provider:model> [--samples file] [--repeats n]`);
     return 1;
   }
-  const samplesFile = args.opts["--samples"] ?? "modelshift-samples.jsonl";
-  if (!existsSync(samplesFile)) {
-    err(`Samples file not found: ${samplesFile}. Create one with "modelshift capture <logs.jsonl>".`);
-    return 1;
-  }
-  const samples = parseSamplesJsonl(readFileSync(samplesFile, "utf8"));
-  const repeats = Math.max(1, Number(args.opts["--repeats"] ?? 3));
-  const concurrency = Math.max(1, Number(args.opts["--concurrency"] ?? 4));
-  const prices: Prices | undefined = args.opts["--prices"] ? JSON.parse(readFileSync(args.opts["--prices"], "utf8")) : undefined;
-  const temperature = args.opts["--temperature"] !== undefined ? Number(args.opts["--temperature"]) : undefined;
-
-  // Validate specs + keys before spending anything.
-  const baseline = createProvider(from);
-  const candidates = to.split(",").map((s) => s.trim()).filter(Boolean).map((s) => createProvider(s));
-
-  const per = estimateRun(samples, repeats, prices, [baseline.spec, candidates[0].spec]);
-  const calls = per.calls * candidates.length;
-  process.stdout.write(`Plan: ${samples.length} samples × ${repeats} repeats × 2 models × ${candidates.length} candidate(s) = ${calls} API calls (~${(per.approxInputTokens * candidates.length).toLocaleString()} input tokens${per.approxCostUsd !== undefined ? `, ~$${(per.approxCostUsd * candidates.length).toFixed(2)}` : ""}).\n`);
-  if (calls > CONFIRM_ABOVE_CALLS && !args.flags.has("--yes")) {
-    err(`This will make ${calls} paid API calls. Re-run with --yes to proceed, or lower --repeats / use fewer samples.`);
-    return 1;
-  }
-
-  const outBase = args.opts["--out"] ?? "modelshift-results.json";
-  const results: { spec: string; result: RunResult; out: string }[] = [];
-  for (const [i, candidate] of candidates.entries()) {
-    const { meta, runs } = await executeRun(samples, baseline, candidate, {
-      repeats,
-      concurrency,
-      temperature,
-      toolVersion: VERSION,
-      onProgress: (d, t) => {
-        if (process.stderr.isTTY) process.stderr.write(`\r  ${candidate.spec}: ${d}/${t} calls`);
+  const markdown = args.flags.has("--markdown");
+  const log = (s: string) => (markdown ? process.stderr : process.stdout).write(s + "\n");
+  try {
+    const res = await runCore(
+      {
+        from,
+        to: to.split(",").map((x) => x.trim()).filter(Boolean),
+        samples: args.opts["--samples"],
+        repeats: args.opts["--repeats"] !== undefined ? Number(args.opts["--repeats"]) : undefined,
+        concurrency: args.opts["--concurrency"] !== undefined ? Number(args.opts["--concurrency"]) : undefined,
+        temperature: args.opts["--temperature"] !== undefined ? Number(args.opts["--temperature"]) : undefined,
+        prices: args.opts["--prices"],
+        judge: args.opts["--judge"],
+        out: args.opts["--out"],
+        html: args.opts["--html"],
+        yes: args.flags.has("--yes"),
       },
-    });
-    if (process.stderr.isTTY) process.stderr.write("\n");
-    const analysis = analyze(samples, runs, { prices, baselineSpec: baseline.spec, candidateSpec: candidate.spec });
-    const result: RunResult = { meta, samples, runs, analysis };
-    const out = candidates.length === 1 ? outBase : outBase.replace(/(\.json)?$/, `-${i + 1}.json`);
-    writeFileSync(out, JSON.stringify(result, null, 2));
-    process.stdout.write(runSummaryText(result) + `\nFull results: ${out}\n`);
-    results.push({ spec: candidate.spec, result, out });
+      {
+        onPlan: (p) => log(p.text),
+        onProgress: (spec, d, t) => {
+          if (process.stderr.isTTY) process.stderr.write(`\r  ${spec}: ${d}/${t} calls${d === t ? "\n" : ""}`);
+        },
+      },
+    );
+    for (const r of res.results) log(runSummaryText(r.result) + `\nFull results: ${r.out}`);
+    if (res.results.length > 1) log("\n" + compareCandidatesText(res.results.map((r) => ({ spec: r.spec, result: r.result }))));
+    if (res.html) log(`HTML report: ${res.html}`);
+    if (markdown) process.stdout.write(runMarkdown(res.results.map((r) => r.result)) + "\n");
+    return args.flags.has("--fail-on-unsafe") && res.results.some((r) => r.result.analysis.verdict === "unsafe") ? 1 : 0;
+  } catch (e) {
+    if (e instanceof SpendGuardError) {
+      err(e.message);
+      return 1;
+    }
+    throw e;
   }
-  if (results.length > 1) process.stdout.write("\n" + compareCandidatesText(results.map((r) => ({ spec: r.spec, result: r.result }))) + "\n");
-  return args.flags.has("--fail-on-unsafe") && results.some((r) => r.result.analysis.verdict === "unsafe") ? 1 : 0;
+}
+
+function cmdReport(args: Args): number {
+  if (args.flags.has("--markdown")) {
+    process.stdout.write(runMarkdown(loadResults(args.positional)) + "\n");
+    return 0;
+  }
+  const { out, results } = reportCore(args.positional, args.opts["--out"]);
+  process.stdout.write(`Wrote ${out} (${results.length} candidate${results.length > 1 ? "s" : ""}, ${results[0].runs.length} samples).\n`);
+  return 0;
 }
 
 async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   const args = parseArgs(argv);
+  try {
+    return await dispatch(args);
+  } catch (e) {
+    if (e instanceof UsageError) {
+      err(e.message);
+      return 1;
+    }
+    throw e;
+  }
+}
+
+async function dispatch(args: Args): Promise<number> {
   switch (args.cmd) {
     case "scan":
       return cmdScan(args);
@@ -215,6 +218,11 @@ async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
       return cmdCapture(args);
     case "run":
       return cmdRun(args);
+    case "report":
+      return cmdReport(args);
+    case "mcp":
+      await serveMcp();
+      return 0;
     case "version":
       process.stdout.write(VERSION + "\n");
       return 0;

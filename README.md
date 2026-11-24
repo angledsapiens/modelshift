@@ -84,26 +84,41 @@ jobs:
 # 1. Turn logged requests into a replayable test set (PII redacted by default)
 npx modelshift capture logs.jsonl            # -> modelshift-samples.jsonl (50 samples spread across the log)
 
-# 2. Replay on the old and the new model, then compare
-npx modelshift run --from openai:gpt-4o-2024-08-06 --to openai:gpt-6-luna
-npx modelshift run --from deepinfra:google/gemma-2-27b-it --to deepinfra:google/gemma-3-27b-it
+# 2. Replay on the old and the new model, compare, and write a shareable report
+npx modelshift run --from openai:gpt-4o-2024-08-06 --to openai:gpt-6-luna --html modelshift-report.html
+npx modelshift run --from deepinfra:google/gemma-3-12b-it --to deepinfra:google/gemma-3-4b-it   --judge deepinfra:meta-llama/Llama-3.3-70B-Instruct-Turbo --repeats 2
 ```
 
+A real run (24 samples from a production app's language-detection and extraction prompts, on DeepInfra):
+
 ```
-openai:gpt-4o-2024-08-06  →  openai:gpt-6-luna   (24 samples × 2 repeats)
+deepinfra:google/gemma-3-12b-it  →  deepinfra:google/gemma-3-4b-it   (24 samples × 2 repeats)
 Verdict: NOT SAFE TO SWITCH YET  (confidence: medium; never a guarantee)
-  - json-valid: 100.0% → 50.0% (95% CI of change -70.8% to -29.2%, beyond the baseline's own variation of ±0.0%)
+  - judge: 100.0% → 78.3% (95% CI of change -39.1% to -4.3%, beyond the baseline's own variation of ±0.0%)
+  - behaviour drift: outputs are less similar to the baseline (0.83) than the baseline is to itself (1.00).
 
 Check            baseline  candidate  change (95% CI)           noise   n
-errors               0.0%       0.0%  +0.0% [0.0%, 0.0%]         ±0.0%   24
-json-valid         100.0%      50.0%  -50.0% [-70.8%, -29.2%]    ±0.0%   24 ✗
-...
+errors               2.1%       0.0%  -2.1% [-6.3%, 0.0%]        ±4.2%   24
+json-shape         100.0%      81.8%  -18.2% [-45.5%, 0.0%]      ±0.0%   11
+assertions          91.7%      79.2%  -12.5% [-29.2%, 4.2%]      ±0.0%   24
+judge              100.0%      78.3%  -21.7% [-39.1%, -4.3%]     ±0.0%   23 ✗
+
+Examples of changes:
+  [json-shape] sample person-7
+    baseline : {"name": "", "dob": "", "tob": "", "place": ""}
+    candidate: {}
+  [assertions] sample lang-9
+    baseline : romanized Punjabi
+    candidate: romanized Hindi
 ```
+
+The smaller model looks fine at a glance and is faster, but it drops required JSON fields and confuses Indian languages. The regex checks alone weren't conclusive on 24 samples; the LLM judge, calibrated against the old model's agreement with itself, was.
 
 **How the comparison stays honest:**
 - Models are random, so the **baseline runs each sample several times** (`--repeats`, default 3). Its run-to-run variation is the **noise floor**.
 - A check is only flagged when the 95% bootstrap confidence interval of the change lies entirely on the worse side **and** the change is bigger than that noise floor.
 - **Checks:** call errors (e.g. a removed model), JSON validity, JSON shape (top-level keys), tool calls, refusals, your own per-sample `expect.match` / `expect.notMatch` regexes, plus a model-free similarity drift (is the new model less like the old one than the old one is to itself?). Latency, output tokens and cost (`--prices`) are reported too.
+- **Optional LLM judge (`--judge provider:model`)** for open-ended answers. The judge compares each answer with the baseline's first answer and says SAME or DIFFERENT. It also judges the baseline's other repeats against that same answer, so the candidate is only flagged if it differs more often than the old model differs from itself. Use a strong model that is neither the old nor the new one, and `--repeats 2` or more.
 - **Verdicts:** *likely safe*, *review*, or *not safe yet*, with a confidence level based on sample count. It never says "guaranteed".
 - **Silent swaps:** if a provider serves a different model than the one you named, for the baseline or the candidate, `run` warns you, because you'd be comparing against the wrong model.
 - **Old model already gone?** If every baseline call fails, candidates are judged on their own against each sample's expected output. Give several candidates (`--to a,b,c`) to compare them in one table.
@@ -118,11 +133,61 @@ json-valid         100.0%      50.0%  -50.0% [-70.8%, -29.2%]    ±0.0%   24 ✗
 - Langfuse-style `{input, output}`
 - Simple `{prompt, system, output}`
 
+## Share the result
+
+```bash
+npx modelshift report modelshift-results.json                 # -> modelshift-report.html
+npx modelshift report results-a.json results-b.json -o cmp.html  # several candidates side by side
+npx modelshift report modelshift-results.json --markdown      # for a PR comment or ticket
+```
+
+The report is one self-contained HTML file (no scripts, no external assets, light and dark themes): the verdict, every check with its confidence interval drawn against the noise band, regressed examples side by side, and every sample's input and outputs. It contains your samples' text, so review it before sharing outside your team.
+
+## GitHub Action
+
+Daily watch that opens (and later closes) an issue when a model you use is retiring, removed or silently redirected: [`examples/workflows/modelshift-watch.yml`](examples/workflows/modelshift-watch.yml).
+
+```yaml
+- uses: angledsapiens/modelshift@v0
+  with:
+    probe: "true"        # live lists + 1-token probes
+    fail-on: retiring
+  env:
+    DEEPINFRA_API_KEY: ${{ secrets.DEEPINFRA_API_KEY }}
+```
+
+Pull-request gate that replays your samples on the current and proposed model, comments the verdict on the PR, uploads the HTML report and fails on "not safe yet": [`examples/workflows/modelshift-gate.yml`](examples/workflows/modelshift-gate.yml).
+
+```yaml
+- uses: angledsapiens/modelshift@v0
+  with:
+    command: run
+    from: openai:gpt-4o-2024-08-06
+    to: openai:gpt-6-luna
+    comment: "true"
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+```
+
+Every result is also written to the job summary.
+
+## Use it from coding agents (MCP + Claude Code skill)
+
+`modelshift mcp` is a dependency-free MCP server (stdio) with five tools: `scan_models`, `retirement_calendar`, `capture_samples`, `run_migration_test` and `render_report`.
+
+```bash
+claude mcp add modelshift -- npx -y modelshift mcp
+```
+
+Paid runs are guarded. Above 60 calls, `run_migration_test` returns the plan instead of running, and the agent must ask you before retrying with `confirm_spend: true`.
+
+The Claude Code skill in [`skills/modelshift/SKILL.md`](skills/modelshift/SKILL.md) teaches an agent the workflow: scan, build samples, test with your approval, and explain the verdict honestly. Copy it to `.claude/skills/modelshift/` in your project or to `~/.claude/skills/`.
+
 ## Roadmap
 
-- `report`: a single-file HTML migration report to share with your team
-- A GitHub Action, an MCP server and a Claude Code skill
-- An optional LLM-judge check for open-ended answers
+- Hosted retirement alerts across many repos (email or Slack)
+- Prompt adaptation hints for the new model
+- More log importers (LangSmith, OpenTelemetry GenAI spans)
 
 ## Contributing to the calendar
 
@@ -130,4 +195,4 @@ Spotted a retirement we're missing? Open a PR that edits `data/retirements.json`
 
 ## License
 
-MIT. The CLI, checks and calendar are, and will stay, free and open source.
+MIT. The CLI, checks, calendar, report, GitHub Action and MCP server are, and will stay, free and open source.
