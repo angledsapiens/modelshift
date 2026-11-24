@@ -71,11 +71,48 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 ```
 
+## Test the replacement before you switch
+
+```bash
+# 1. Turn logged requests into a replayable test set (PII redacted by default)
+npx modelshift capture logs.jsonl            # -> modelshift-samples.jsonl (50 samples spread across the log)
+
+# 2. Replay on the old and the new model, then compare
+npx modelshift run --from openai:gpt-4o-2024-08-06 --to openai:gpt-6-luna
+npx modelshift run --from deepinfra:google/gemma-2-27b-it --to deepinfra:google/gemma-3-27b-it
+```
+
+```
+openai:gpt-4o-2024-08-06  →  openai:gpt-6-luna   (24 samples × 2 repeats)
+Verdict: NOT SAFE TO SWITCH YET  (confidence: medium; never a guarantee)
+  - json-valid: 100.0% → 50.0% (95% CI of change -70.8% to -29.2%, beyond the baseline's own variation of ±0.0%)
+
+Check            baseline  candidate  change (95% CI)           noise   n
+errors               0.0%       0.0%  +0.0% [0.0%, 0.0%]         ±0.0%   24
+json-valid         100.0%      50.0%  -50.0% [-70.8%, -29.2%]    ±0.0%   24 ✗
+...
+```
+
+**How the comparison stays honest:**
+- Models are random, so the **baseline runs each sample several times** (`--repeats`, default 3). Its run-to-run variation is the **noise floor**.
+- A check is only flagged when the 95% bootstrap confidence interval of the change lies entirely on the worse side **and** the change is bigger than that noise floor.
+- **Checks:** call errors (e.g. a removed model), JSON validity, JSON shape (top-level keys), tool calls, refusals, your own per-sample `expect.match` / `expect.notMatch` regexes, plus a model-free similarity drift (is the new model less like the old one than the old one is to itself?). Latency, output tokens and cost (`--prices`) are reported too.
+- **Verdicts:** *likely safe*, *review*, or *not safe yet*, with a confidence level based on sample count. It never says "guaranteed".
+- **Spend guard:** `run` prints the number of calls before starting and requires `--yes` above 60 calls.
+
+**Providers for `run`:** `openai`, `anthropic`, `google`, `azure` (deployment name; set `AZURE_OPENAI_ENDPOINT`), `mistral`, `deepinfra`, `together`, `fireworks`, `groq`, `openrouter`.
+
+**Accepted log formats for `capture`** (JSONL or a JSON array):
+- OpenAI-style `{request, response}` logs
+- Bare request bodies `{messages, tools, ...}`
+- Langfuse-style `{input, output}`
+- Simple `{prompt, system, output}`
+
 ## Roadmap
 
-- `capture` + `run`: replay real traffic against the replacement model, measuring a noise floor first, then diffing format, tool calls, refusals, cost and latency
-- `report`: a single-file HTML migration report with an honest "safe to switch?" verdict
+- `report`: a single-file HTML migration report to share with your team
 - A GitHub Action, an MCP server and a Claude Code skill
+- An optional LLM-judge check for open-ended answers
 
 ## Contributing to the calendar
 
