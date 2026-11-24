@@ -11,7 +11,9 @@ const bold = (s: string) => c(1, s);
 
 const LABEL: Record<string, string> = {
   retired: "ALREADY SHUT DOWN",
-  missing: "NOT SERVED ANYMORE (live)",
+  missing: "NOT SERVED ANYMORE (probe)",
+  redirected: "SILENTLY REDIRECTED (probe)",
+  unlisted: "NOT IN MODEL LIST (live)",
   flagged: "DEPRECATED BY PROVIDER (live)",
   retiring: "RETIRING",
   deprecated: "DEPRECATED (date TBA)",
@@ -35,8 +37,9 @@ export function toText(list: Assessment[], results: ProviderResult[], meta: { ro
     return out.join("\n");
   }
   for (const a of risky) {
-    const color = a.status === "retired" || a.status === "missing" ? red : a.status === "check" ? cyan : yellow;
+    const color = a.status === "retired" || a.status === "missing" || a.status === "redirected" ? red : a.status === "check" ? cyan : yellow;
     out.push(color(`● ${LABEL[a.status]}`) + `  ${bold(a.id)}  ${when(a)}`);
+    if (a.servedAs) out.push(`    actually served: ${bold(a.servedAs)}`);
     if (a.replacement) out.push(`    replacement: ${a.replacement}`);
     if (a.note) out.push(`    ${dim(a.note)}`);
     const locs = a.locations.slice(0, 5).map((l) => `${l.file}:${l.line}`);
@@ -45,13 +48,14 @@ export function toText(list: Assessment[], results: ProviderResult[], meta: { ro
     out.push("");
   }
   out.push(`${risky.length} model id(s) need attention, ${okCount} with no known retirement.`);
+  if (meta.live && risky.some((a) => a.status === "unlisted")) out.push(dim("Some models are not in their host's list: add --probe to check whether they fail or are silently redirected."));
   if (meta.live) {
     for (const r of results) {
       if (r.ok) out.push(dim(`  live: ${r.provider} ✓ (${r.models?.size ?? 0} models listed)`));
       else out.push(dim(`  live: ${r.provider} skipped — ${r.skipped ?? r.error}`));
     }
   } else {
-    out.push(dim("Tip: run with --live to also catch models silently removed by hosts like DeepInfra (needs API keys for most providers)."));
+    out.push(dim("Tip: run with --live --probe to catch models hosts like DeepInfra removed or silently swapped (probe needs that host's API key)."));
   }
   return out.join("\n");
 }

@@ -34,17 +34,36 @@ test("open-weight ids are only checked against known hosts", () => {
   assert.deepEqual(providersFor(a("gemini-2.5-pro", "models/gemini-2.5-pro", "google", ["deepinfra"])), ["google"]);
 });
 
-test("a model DeepInfra silently removed is flagged as missing", async () => {
+const DI_LIST = { "https://api.deepinfra.com/v1/openai/models": { object: "list", data: [{ id: "Qwen/Qwen3-235B-A22B" }, { id: "google/gemma-3-12b-it" }] } };
+
+test("a model missing from DeepInfra's list is reported as unlisted (not assumed dead)", async () => {
   const list = [
     a("meta-llama/meta-llama-3.1-70b-instruct", "meta-llama/Meta-Llama-3.1-70B-Instruct", "open-weight", ["deepinfra"]),
     a("qwen/qwen3-235b-a22b", "Qwen/Qwen3-235B-A22B", "open-weight", ["deepinfra"]),
   ];
-  const { fn } = mockFetch({ "https://api.deepinfra.com/v1/openai/models": { object: "list", data: [{ id: "Qwen/Qwen3-235B-A22B" }] } });
+  const { fn } = mockFetch(DI_LIST);
   const { assessments, results } = await liveCheck(list, { env: {}, fetchFn: fn });
   assert.equal(results[0].ok, true); // DeepInfra's list works without a key
-  assert.equal(assessments[0].status, "missing");
-  assert.match(assessments[0].note ?? "", /deepinfra/);
+  assert.equal(assessments[0].status, "unlisted");
+  assert.match(assessments[0].note ?? "", /--probe/);
   assert.equal(assessments[1].status, "ok");
+});
+
+test("probe distinguishes silent redirects, real 404s and still-served models", async () => {
+  const list = [
+    a("google/gemma-2-9b-it", "google/gemma-2-9b-it", "open-weight", ["deepinfra"]), // redirected (seen in the wild)
+    a("old/model-1", "old/model-1", "open-weight", ["deepinfra"]), // truly gone
+    a("hidden/model-2", "hidden/model-2", "open-weight", ["deepinfra"]), // unlisted but still served as itself
+  ];
+  const { fn } = mockFetch(DI_LIST);
+  const probeFn = async (_p: string, model: string) =>
+    model === "google/gemma-2-9b-it" ? { served: "google/gemma-3-12b-it" } : model === "old/model-1" ? { notFound: true } : { served: "hidden/model-2" };
+  const { assessments } = await liveCheck(list, { env: {}, fetchFn: fn, probe: true, probeFn });
+  assert.equal(assessments[0].status, "redirected");
+  assert.equal(assessments[0].servedAs, "google/gemma-3-12b-it");
+  assert.equal(assessments[1].status, "missing");
+  assert.equal(assessments[2].status, "ok");
+  assert.match(assessments[2].note ?? "", /still served/);
 });
 
 test("providers needing keys are skipped, not failed, when keys are absent", async () => {

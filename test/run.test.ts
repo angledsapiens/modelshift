@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { bootstrapMeanCI, meanPairwiseAbsDiff } from "../src/run/stats.js";
 import { extractJson, isRefusal, similarity, topLevelKeys } from "../src/run/checks.js";
 import { captureFromText, redact, sampleEvenly, toSample, type Sample } from "../src/capture.js";
-import { createProvider, parseSpec, type ChatProvider, type ChatResponse, type FetchFn } from "../src/providers/index.js";
-import { analyze, executeRun, type SampleRun } from "../src/run/index.js";
+import { createProvider, parseSpec, retryPolicy, type ChatProvider, type ChatResponse, type FetchFn } from "../src/providers/index.js";
+import { analyze, executeRun, redirectedTo, type SampleRun } from "../src/run/index.js";
 import { main } from "../src/cli.js";
 
 /* ---------------- stats & checks */
@@ -100,6 +100,39 @@ test("HTTP errors (e.g. model removed) become response errors, not exceptions", 
   const p = createProvider("deepinfra:meta-llama/Meta-Llama-3-8B-Instruct", { env: { DEEPINFRA_API_KEY: "k" }, fetchFn: fn });
   const r = await p.chat({ messages: [{ role: "user", content: "hi" }] });
   assert.match(r.error ?? "", /404.*Model not found/);
+});
+
+test("transient 429s are retried; permanent 404s are not", async () => {
+  const saved = { ...retryPolicy };
+  retryPolicy.baseDelayMs = 1;
+  try {
+    let n = 0;
+    const flaky: FetchFn = async () => {
+      n++;
+      return n < 3 ? { ok: false, status: 429, text: async () => '{"error":{"message":"Model busy, retry later"}}' } : { ok: true, status: 200, text: async () => '{"choices":[{"message":{"content":"ok"}}]}' };
+    };
+    const r = await createProvider("deepinfra:x/y-1", { env: { DEEPINFRA_API_KEY: "k" }, fetchFn: flaky }).chat({ messages: [{ role: "user", content: "a" }] });
+    assert.equal(r.text, "ok");
+    assert.equal(n, 3);
+
+    let m = 0;
+    const gone: FetchFn = async () => {
+      m++;
+      return { ok: false, status: 404, text: async () => '{"error":{"message":"does not exist"}}' };
+    };
+    const g = await createProvider("deepinfra:x/y-1", { env: { DEEPINFRA_API_KEY: "k" }, fetchFn: gone }).chat({ messages: [{ role: "user", content: "a" }] });
+    assert.match(g.error ?? "", /404/);
+    assert.equal(m, 1);
+  } finally {
+    Object.assign(retryPolicy, saved);
+  }
+});
+
+test("the errors check counts samples whose baseline failed entirely", () => {
+  const samples = jsonSamples(10);
+  const runs: SampleRun[] = samples.map((s, i) => ({ id: s.id, baseline: [i < 3 ? errored() : ok('{"a":1}')], candidate: [ok('{"a":1}')] }));
+  const a = analyze(samples, runs);
+  assert.equal(a.metrics.find((m) => m.name === "errors")?.samples, 10);
 });
 
 test("Anthropic adapter moves system prompt and converts tools", async () => {
@@ -208,6 +241,17 @@ test("old model already removed → candidate judged on its own against expected
   const b = analyze(samples, bad);
   assert.equal(b.verdict, "review");
   assert.ok(b.metrics.find((m) => m.name === "assertions")?.regression);
+});
+
+test("a silently redirected baseline is called out; dated aliases are not", () => {
+  assert.equal(redirectedTo("deepinfra:google/gemma-2-9b-it", [ok("x", { servedModel: "google/gemma-3-12b-it" })]), "google/gemma-3-12b-it");
+  assert.equal(redirectedTo("openai:gpt-4o", [ok("x", { servedModel: "gpt-4o-2024-08-06" })]), undefined);
+  assert.equal(redirectedTo("google:gemini-3.6-flash", [ok("x", { servedModel: "models/gemini-3.6-flash" })]), undefined);
+  const samples = jsonSamples(20);
+  const runs: SampleRun[] = samples.map((s) => ({ id: s.id, baseline: [ok('{"a":1}', { servedModel: "google/gemma-3-12b-it" })], candidate: [ok('{"a":1}', { servedModel: "google/gemma-3-12b-it" })] }));
+  const r = analyze(samples, runs, { baselineSpec: "deepinfra:google/gemma-2-9b-it", candidateSpec: "deepinfra:google/gemma-3-12b-it" });
+  assert.ok(r.reasons.some((x) => x.startsWith("baseline redirected")));
+  assert.equal(r.verdict, "review");
 });
 
 test("executeRun runs every sample × repeat × model with bounded concurrency", async () => {

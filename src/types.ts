@@ -37,7 +37,9 @@ export interface Calendar {
 
 export type Status =
   | "retired" // shutdown date has passed: calls are (or will soon be) failing
-  | "missing" // live check: the provider no longer lists this model
+  | "missing" // probe: the provider returned model-not-found
+  | "redirected" // probe: the provider silently serves a different model under this name
+  | "unlisted" // live list: not in the provider's public model list (may be removed or redirected; probe to confirm)
   | "retiring" // shutdown date in the future
   | "deprecated" // deprecated, no date yet
   | "check" // undated alias whose dated snapshots are retiring
@@ -55,4 +57,6 @@ export interface Assessment {
   note?: string;
   locations: { file: string; line: number; rawId: string }[];
   hosts: Host[];
+  /** Probe result: the model the provider actually served for this id. */
+  servedAs?: string;
 }

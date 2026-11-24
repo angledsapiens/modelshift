@@ -138,7 +138,7 @@ function liveKey(a: Assessment): string[] {
 
 export async function liveCheck(
   assessments: Assessment[],
-  opts: { env?: NodeJS.ProcessEnv; fetchFn?: FetchLike; only?: ProviderName[]; repoHosts?: Host[] } = {},
+  opts: { env?: NodeJS.ProcessEnv; fetchFn?: FetchLike; only?: ProviderName[]; repoHosts?: Host[]; probe?: boolean; probeFn?: ProbeFn } = {},
 ): Promise<{ assessments: Assessment[]; results: ProviderResult[] }> {
   const env = opts.env ?? process.env;
   const fetchFn = opts.fetchFn ?? (globalThis.fetch as unknown as FetchLike);
@@ -149,6 +149,7 @@ export async function liveCheck(
   const results = await Promise.all(defs.map((d) => fetchProvider(d, env, fetchFn)));
   const byName = new Map(results.map((r) => [r.provider, r]));
 
+  const probeTargets: { a: Assessment; p: ProviderName; prev: Assessment["status"]; prevNote?: string }[] = [];
   for (const a of assessments) {
     if (a.status === "retired") continue; // already known dead
     for (const p of providersFor(a, repoHosts)) {
@@ -156,8 +157,9 @@ export async function liveCheck(
       if (!r?.ok || !r.models) continue;
       const hit = liveKey(a).map((k) => r.models!.get(k)).find(Boolean);
       if (!hit) {
-        a.status = "missing";
-        a.note = `Not listed by ${p}'s live model list today: calls will likely fail with model-not-found.${a.note ? " " + a.note : ""}`;
+        probeTargets.push({ a, p, prev: a.status, prevNote: a.note });
+        a.status = "unlisted";
+        a.note = `Not in ${p}'s public model list today. The host may have removed it, or may silently serve a different model under this name — run with --probe to find out.${a.note ? " " + a.note : ""}`;
         break;
       }
       if (hit.deprecation && a.status !== "retiring") {
@@ -166,5 +168,57 @@ export async function liveCheck(
       }
     }
   }
+
+  if (opts.probe) {
+    for (const t of probeTargets) {
+      const res = await probeModel(t.p, t.a.locations[0].rawId, env, opts.probeFn);
+      if (res.skipped) {
+        t.a.note = `${t.a.note} (probe skipped: ${res.skipped})`;
+      } else if (res.notFound) {
+        t.a.status = "missing";
+        t.a.note = `${t.p} returned model-not-found: calls with this id are failing.`;
+      } else if (res.served && !sameModel(res.served, t.a.locations[0].rawId)) {
+        t.a.status = "redirected";
+        t.a.servedAs = res.served;
+        t.a.note = `${t.p} silently serves "${res.served}" when you ask for this model. Your app is not running the model it names: behaviour, quality and cost may have changed without notice.`;
+      } else if (res.served) {
+        t.a.status = t.prev;
+        t.a.note = `Not in ${t.p}'s public list, but still served as itself (probe).${t.prevNote ? " " + t.prevNote : ""}`;
+      } else if (res.error) {
+        t.a.note = `${t.a.note} (probe failed: ${res.error})`;
+      }
+    }
+  }
   return { assessments, results };
+}
+
+/* ------------------------------------------------------------------ probe */
+
+export interface ProbeResult {
+  served?: string;
+  notFound?: boolean;
+  skipped?: string;
+  error?: string;
+}
+
+export type ProbeFn = (provider: ProviderName, model: string, env: NodeJS.ProcessEnv) => Promise<ProbeResult>;
+
+function sameModel(served: string, requested: string): boolean {
+  const n = (s: string) => s.toLowerCase().replace(/^models\//, "");
+  return n(served) === n(requested);
+}
+
+/** One 1-token request; reads the "model" the provider reports serving. Costs a fraction of a cent. */
+async function probeModel(provider: ProviderName, model: string, env: NodeJS.ProcessEnv, probeFn?: ProbeFn): Promise<ProbeResult> {
+  if (probeFn) return probeFn(provider, model, env);
+  const { createProvider } = await import("../providers/index.js");
+  let chat;
+  try {
+    chat = createProvider(`${provider}:${model}`, { env, timeoutMs: 30_000 });
+  } catch (e) {
+    return { skipped: (e as Error).message };
+  }
+  const r = await chat.chat({ messages: [{ role: "user", content: "Reply with: OK" }], max_tokens: 1, temperature: 0 });
+  if (r.error) return /\b404\b|does not exist|not[ _-]found/i.test(r.error) ? { notFound: true } : { error: r.error };
+  return { served: r.servedModel ?? model };
 }

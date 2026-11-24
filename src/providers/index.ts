@@ -37,6 +37,8 @@ export interface ChatResponse {
   outputTokens?: number;
   latencyMs: number;
   finishReason?: string;
+  /** Model the provider reports actually serving the request (may differ from the requested one: redirects/aliases). */
+  servedModel?: string;
   error?: string; // set when the call failed (HTTP error, model gone, timeout...)
 }
 
@@ -76,7 +78,25 @@ function keyFrom(env: NodeJS.ProcessEnv, names: string[], provider: string): str
   return k;
 }
 
-async function postJson(fetchFn: FetchFn, url: string, headers: Record<string, string>, body: unknown, timeoutMs: number): Promise<{ status: number; json?: any; error?: string; latencyMs: number }> {
+/** Retries for transient failures (rate limits, overloaded/5xx, timeouts). Exposed for tests. */
+export const retryPolicy = { attempts: 4, baseDelayMs: 1500 };
+
+const isTransient = (status: number, error?: string) => status === 429 || (status >= 500 && status <= 504) || status === 529 || error === "timeout" || (status === 0 && !!error);
+
+async function postJson(fetchFn: FetchFn, url: string, headers: Record<string, string>, body: unknown, timeoutMs: number): Promise<{ status: number; json?: any; error?: string; latencyMs: number; attempts: number }> {
+  let last: Awaited<ReturnType<typeof postJsonOnce>> | undefined;
+  for (let attempt = 1; attempt <= retryPolicy.attempts; attempt++) {
+    last = await postJsonOnce(fetchFn, url, headers, body, timeoutMs);
+    if (!last.error || !isTransient(last.status, last.error)) return { ...last, attempts: attempt };
+    if (attempt < retryPolicy.attempts) {
+      const wait = retryPolicy.baseDelayMs * 2 ** (attempt - 1) * (0.75 + Math.random() * 0.5); // exponential backoff + jitter
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  return { ...last!, error: `${last!.error} (after ${retryPolicy.attempts} attempts)`, attempts: retryPolicy.attempts };
+}
+
+async function postJsonOnce(fetchFn: FetchFn, url: string, headers: Record<string, string>, body: unknown, timeoutMs: number): Promise<{ status: number; json?: any; error?: string; latencyMs: number }> {
   const t0 = performance.now();
   try {
     const res = await fetchFn(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
@@ -120,6 +140,7 @@ function openAICompatible(provider: string, model: string, base: string, headers
         outputTokens: r.json?.usage?.completion_tokens,
         latencyMs: r.latencyMs,
         finishReason: choice?.finish_reason,
+        servedModel: typeof r.json?.model === "string" ? r.json.model : undefined,
       };
     },
   };
@@ -149,6 +170,7 @@ function anthropic(model: string, key: string, fetchFn: FetchFn, timeoutMs: numb
         outputTokens: r.json?.usage?.output_tokens,
         latencyMs: r.latencyMs,
         finishReason: r.json?.stop_reason,
+        servedModel: typeof r.json?.model === "string" ? r.json.model : undefined,
       };
     },
   };
@@ -184,6 +206,7 @@ function gemini(model: string, key: string, fetchFn: FetchFn, timeoutMs: number)
         outputTokens: r.json?.usageMetadata?.candidatesTokenCount,
         latencyMs: r.latencyMs,
         finishReason: cand?.finishReason,
+        servedModel: typeof r.json?.modelVersion === "string" ? r.json.modelVersion : undefined,
       };
     },
   };

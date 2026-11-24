@@ -25,6 +25,8 @@ scan options:
                          Uses OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY,
                          DEEPINFRA_API_KEY, TOGETHER_API_KEY, FIREWORKS_API_KEY, GROQ_API_KEY,
                          OPENROUTER_API_KEY when set. Keys are only sent to their own provider.
+  --probe                With --live: send one 1-token request per unlisted model to see if it fails (404)
+                         or is SILENTLY REDIRECTED to a different model (e.g. DeepInfra swaps retired models).
   --providers a,b        Limit live checks (${PROVIDERS.map((p) => p.name).join(", ")}).
   --json | --markdown    Machine-readable output / PR-comment summary.
   --fail-on <level>      Exit 1 if anything at or above: retired | retiring | any.
@@ -55,7 +57,7 @@ run options:
   -h, --help             Show help.  -v, --version  Show version.
 `;
 
-const BOOL_FLAGS = new Set(["--live", "--json", "--markdown", "--include-markdown", "--no-redact", "--yes", "--fail-on-unsafe", "-h", "--help", "-v", "--version"]);
+const BOOL_FLAGS = new Set(["--live", "--probe", "--json", "--markdown", "--include-markdown", "--no-redact", "--yes", "--fail-on-unsafe", "-h", "--help", "-v", "--version"]);
 
 export interface Args {
   cmd?: string;
@@ -86,7 +88,7 @@ export function parseArgs(argv: string[]): Args {
     flags,
     opts,
     path: positional[1] ?? ".",
-    live: flags.has("--live"),
+    live: flags.has("--live") || flags.has("--probe"),
     failOn: opts["--fail-on"],
     providers: opts["--providers"]?.split(",").filter(Boolean) as ProviderName[] | undefined,
   };
@@ -107,7 +109,7 @@ async function cmdScan(args: Args): Promise<number> {
   let results: ProviderResult[] = [];
   if (args.live) {
     const repoHosts = [...new Set(findings.flatMap((f) => f.hosts))] as Host[];
-    ({ assessments: list, results } = await liveCheck(list, { only: args.providers, repoHosts }));
+    ({ assessments: list, results } = await liveCheck(list, { only: args.providers, repoHosts, probe: args.flags.has("--probe") }));
   }
   list = sortAssessments(list);
 
@@ -118,8 +120,8 @@ async function cmdScan(args: Args): Promise<number> {
   if (args.failOn) {
     const levels: Record<string, string[]> = {
       retired: ["retired", "missing"],
-      retiring: ["retired", "missing", "flagged", "retiring"],
-      any: ["retired", "missing", "flagged", "retiring", "deprecated", "check"],
+      retiring: ["retired", "missing", "redirected", "flagged", "retiring"],
+      any: ["retired", "missing", "redirected", "unlisted", "flagged", "retiring", "deprecated", "check"],
     };
     const bad = levels[args.failOn];
     if (!bad) {

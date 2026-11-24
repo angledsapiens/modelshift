@@ -81,7 +81,7 @@ export function assess(findings: Finding[], cal: Calendar, today: string): Asses
   return [...byId.values()];
 }
 
-const ORDER: Record<string, number> = { retired: 0, missing: 1, flagged: 2, retiring: 3, deprecated: 4, check: 5, ok: 6 };
+const ORDER: Record<string, number> = { retired: 0, missing: 1, redirected: 2, unlisted: 3, flagged: 4, retiring: 5, deprecated: 6, check: 7, ok: 8 };
 
 export function sortAssessments(list: Assessment[]): Assessment[] {
   return [...list].sort((x, y) => ORDER[x.status] - ORDER[y.status] || (x.daysLeft ?? 1e9) - (y.daysLeft ?? 1e9) || x.id.localeCompare(y.id));

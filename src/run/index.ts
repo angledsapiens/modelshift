@@ -192,7 +192,7 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
       if (!sample) continue;
       const baselineOk = run.baseline.filter((r) => !r.error);
       // With no working baseline, judge metrics that don't need one (assertions, JSON validity when requested).
-      const applies = baselineOk.length ? def.applies(sample, baselineOk) : def.name === "assertions" ? def.applies(sample, []) : def.name === "json-valid" ? !!sample.json : def.name === "refusals";
+      const applies = def.includeErrors || (baselineOk.length ? def.applies(sample, baselineOk) : def.name === "assertions" ? def.applies(sample, []) : def.name === "json-valid" ? !!sample.json : def.name === "refusals");
       if (!applies) continue;
       const ctx = { sample, baselineOk };
       const b = metricValues(def, run.baseline, ctx);
@@ -279,6 +279,11 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
   };
 
   const reasons: string[] = [];
+  // Hosts can silently serve a different model under the requested name (e.g. DeepInfra redirects retired models).
+  for (const [label, spec, rs] of [["baseline", opts.baselineSpec, runs.flatMap((r) => r.baseline)], ["candidate", opts.candidateSpec, runs.flatMap((r) => r.candidate)]] as const) {
+    const redirect = spec ? redirectedTo(spec, rs) : undefined;
+    if (redirect) reasons.push(`${label} redirected: you asked for ${spec} but the provider served "${redirect}". You are comparing against a different model than named.`);
+  }
   const baselineCalls = runs.flatMap((r) => r.baseline);
   const baselineDead = baselineCalls.length > 0 && baselineCalls.every((r) => r.error);
   if (baselineDead) {
@@ -295,7 +300,7 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
   //  - review:      candidate-only checks fell short, behaviour drifted, or latency doubled
   //  - likely-safe: none of the above
   const candOnlyFails = metrics.some((m) => m.regression && m.mode === "candidate-only");
-  const softIssues = candOnlyFails || drift.changed || (perf.baselineLatencyMs > 0 && perf.candidateLatencyMs > perf.baselineLatencyMs * 2);
+  const softIssues = candOnlyFails || drift.changed || reasons.some((x) => x.includes(" redirected: ")) || (perf.baselineLatencyMs > 0 && perf.candidateLatencyMs > perf.baselineLatencyMs * 2);
   const verdict: Analysis["verdict"] = fails.length ? "unsafe" : softIssues ? "review" : "likely-safe";
   const n = runs.length;
   let confidence: Analysis["confidence"] = n < 20 ? "low" : n < 50 ? "medium" : "high";
@@ -303,6 +308,18 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
   if (!reasons.length) reasons.push("No regression beyond the baseline's own run-to-run variation was detected.");
 
   return { metrics, drift, perf, verdict, confidence, reasons, examples };
+}
+
+/** The served model, if it differs from the requested one (ignoring "models/" prefixes and dated-snapshot aliases). */
+export function redirectedTo(spec: string, rs: ChatResponse[]): string | undefined {
+  const requested = spec.slice(spec.indexOf(":") + 1).toLowerCase().replace(/^models\//, "");
+  for (const r of rs) {
+    if (r.error || !r.servedModel) continue;
+    const served = r.servedModel.toLowerCase().replace(/^models\//, "");
+    if (served === requested || served.startsWith(requested + "-")) continue; // alias -> dated snapshot is normal
+    return r.servedModel;
+  }
+  return undefined;
 }
 
 function pct(x: number): string {
