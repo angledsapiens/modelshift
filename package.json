@@ -1,0 +1,31 @@
+{
+  "name": "modelshift",
+  "version": "0.0.1",
+  "description": "Know what breaks before your LLM is switched off: scan your repo for retiring models (OpenAI, Anthropic, Google, DeepInfra and more) and check them live.",
+  "license": "MIT",
+  "author": "Angled Sapiens (https://github.com/angledsapiens)",
+  "type": "module",
+  "bin": {
+    "modelshift": "dist/src/bin.js"
+  },
+  "files": [
+    "dist/src",
+    "data",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm test",
+    "test": "npm run build && node --test \"dist/test/*.test.js\"",
+    "scan": "node dist/src/bin.js scan"
+  },
+  "keywords": ["llm", "model-deprecation", "migration", "openai", "anthropic", "gemini", "deepinfra", "cli"],
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
