@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env
 *.log
+modelshift-results*.json
+modelshift-samples.jsonl

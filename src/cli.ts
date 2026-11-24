@@ -7,7 +7,7 @@ import { toMarkdown, toText } from "./format.js";
 import { captureFromText, parseSamplesJsonl, samplesToJsonl } from "./capture.js";
 import { createProvider, SUPPORTED_PROVIDERS } from "./providers/index.js";
 import { analyze, estimateRun, executeRun, type Prices, type RunResult } from "./run/index.js";
-import { runSummaryText } from "./run/summary.js";
+import { compareCandidatesText, runSummaryText } from "./run/summary.js";
 import type { Host } from "./types.js";
 
 const VERSION = "0.1.0-dev";
@@ -39,7 +39,9 @@ capture options:
 
 run options:
   --from <provider:model>   Current model, e.g. openai:gpt-4o-2024-08-06, deepinfra:google/gemma-3-27b-it
-  --to <provider:model>     Replacement, e.g. openai:gpt-6-luna, anthropic:claude-sonnet-5-5
+  --to <provider:model>     Replacement(s), comma-separated to compare several, e.g. openai:gpt-6-luna,anthropic:claude-sonnet-5-5
+                            If the old model is already gone, candidates are judged on their own against each
+                            sample's expected output (expect.match / expect.notMatch).
                             Providers: ${SUPPORTED_PROVIDERS.join(", ")}
   --samples <file>          Samples file (default: modelshift-samples.jsonl)
   --repeats <n>             Runs per sample per model (default 3; the baseline repeats form the noise floor)
@@ -168,31 +170,38 @@ async function cmdRun(args: Args): Promise<number> {
 
   // Validate specs + keys before spending anything.
   const baseline = createProvider(from);
-  const candidate = createProvider(to);
+  const candidates = to.split(",").map((s) => s.trim()).filter(Boolean).map((s) => createProvider(s));
 
-  const est = estimateRun(samples, repeats, prices, [baseline.spec, candidate.spec]);
-  process.stdout.write(`Plan: ${samples.length} samples × ${repeats} repeats × 2 models = ${est.calls} API calls (~${est.approxInputTokens.toLocaleString()} input tokens${est.approxCostUsd !== undefined ? `, ~$${est.approxCostUsd.toFixed(2)}` : ""}).\n`);
-  if (est.calls > CONFIRM_ABOVE_CALLS && !args.flags.has("--yes")) {
-    err(`This will make ${est.calls} paid API calls. Re-run with --yes to proceed, or lower --repeats / use fewer samples.`);
+  const per = estimateRun(samples, repeats, prices, [baseline.spec, candidates[0].spec]);
+  const calls = per.calls * candidates.length;
+  process.stdout.write(`Plan: ${samples.length} samples × ${repeats} repeats × 2 models × ${candidates.length} candidate(s) = ${calls} API calls (~${(per.approxInputTokens * candidates.length).toLocaleString()} input tokens${per.approxCostUsd !== undefined ? `, ~$${(per.approxCostUsd * candidates.length).toFixed(2)}` : ""}).\n`);
+  if (calls > CONFIRM_ABOVE_CALLS && !args.flags.has("--yes")) {
+    err(`This will make ${calls} paid API calls. Re-run with --yes to proceed, or lower --repeats / use fewer samples.`);
     return 1;
   }
 
-  const { meta, runs } = await executeRun(samples, baseline, candidate, {
-    repeats,
-    concurrency,
-    temperature,
-    toolVersion: VERSION,
-    onProgress: (d, t) => {
-      if (process.stderr.isTTY) process.stderr.write(`\r  ${d}/${t} calls`);
-    },
-  });
-  if (process.stderr.isTTY) process.stderr.write("\n");
-  const analysis = analyze(samples, runs, { prices, baselineSpec: baseline.spec, candidateSpec: candidate.spec });
-  const result: RunResult = { meta, samples, runs, analysis };
-  const out = args.opts["--out"] ?? "modelshift-results.json";
-  writeFileSync(out, JSON.stringify(result, null, 2));
-  process.stdout.write(runSummaryText(result) + `\nFull results: ${out}\n`);
-  return args.flags.has("--fail-on-unsafe") && analysis.verdict === "unsafe" ? 1 : 0;
+  const outBase = args.opts["--out"] ?? "modelshift-results.json";
+  const results: { spec: string; result: RunResult; out: string }[] = [];
+  for (const [i, candidate] of candidates.entries()) {
+    const { meta, runs } = await executeRun(samples, baseline, candidate, {
+      repeats,
+      concurrency,
+      temperature,
+      toolVersion: VERSION,
+      onProgress: (d, t) => {
+        if (process.stderr.isTTY) process.stderr.write(`\r  ${candidate.spec}: ${d}/${t} calls`);
+      },
+    });
+    if (process.stderr.isTTY) process.stderr.write("\n");
+    const analysis = analyze(samples, runs, { prices, baselineSpec: baseline.spec, candidateSpec: candidate.spec });
+    const result: RunResult = { meta, samples, runs, analysis };
+    const out = candidates.length === 1 ? outBase : outBase.replace(/(\.json)?$/, `-${i + 1}.json`);
+    writeFileSync(out, JSON.stringify(result, null, 2));
+    process.stdout.write(runSummaryText(result) + `\nFull results: ${out}\n`);
+    results.push({ spec: candidate.spec, result, out });
+  }
+  if (results.length > 1) process.stdout.write("\n" + compareCandidatesText(results.map((r) => ({ spec: r.spec, result: r.result }))) + "\n");
+  return args.flags.has("--fail-on-unsafe") && results.some((r) => r.result.analysis.verdict === "unsafe") ? 1 : 0;
 }
 
 async function main(argv: string[] = process.argv.slice(2)): Promise<number> {

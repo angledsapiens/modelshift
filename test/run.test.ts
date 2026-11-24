@@ -194,6 +194,22 @@ test("tool-call changes are detected", () => {
   assert.ok(a.drift.changed);
 });
 
+test("old model already removed → candidate judged on its own against expected outputs", () => {
+  const samples: Sample[] = Array.from({ length: 20 }, (_, i) => ({ id: `l${i}`, messages: [{ role: "user", content: "kal milte hain" }], expect: { match: ["^romanized hindi\\.?$"] } }));
+  const good: SampleRun[] = samples.map((s) => ({ id: s.id, baseline: [errored(), errored()], candidate: [ok("romanized Hindi"), ok("romanized Hindi")] }));
+  const a = analyze(samples, good);
+  assert.match(a.reasons[0], /baseline unavailable/);
+  const as = a.metrics.find((m) => m.name === "assertions")!;
+  assert.equal(as.mode, "candidate-only");
+  assert.equal(as.candidate, 1);
+  assert.equal(a.verdict, "likely-safe");
+
+  const bad: SampleRun[] = samples.map((s, i) => ({ id: s.id, baseline: [errored(), errored()], candidate: [ok(i % 2 ? "English" : "romanized Hindi"), ok("English")] }));
+  const b = analyze(samples, bad);
+  assert.equal(b.verdict, "review");
+  assert.ok(b.metrics.find((m) => m.name === "assertions")?.regression);
+});
+
 test("executeRun runs every sample × repeat × model with bounded concurrency", async () => {
   let inFlight = 0;
   let peak = 0;

@@ -9,6 +9,20 @@ const VERDICT: Record<string, string> = {
   unsafe: "NOT SAFE TO SWITCH YET",
 };
 
+export function compareCandidatesText(list: { spec: string; result: RunResult }[]): string {
+  const names = [...new Set(list.flatMap((x) => x.result.analysis.metrics.map((m) => m.name)))];
+  const lines = ["Candidates compared:", ["candidate".padEnd(42), "verdict".padEnd(12), ...names.map((n) => n.padEnd(11)), "latency"].join(" ")];
+  for (const { spec, result } of list) {
+    const a = result.analysis;
+    const cells = names.map((n) => {
+      const m = a.metrics.find((x) => x.name === n);
+      return (m ? pct(m.candidate) + (m.regression ? "✗" : "") : "—").padEnd(11);
+    });
+    lines.push([spec.padEnd(42), a.verdict.padEnd(12), ...cells, `${Math.round(a.perf.candidateLatencyMs)}ms`].join(" "));
+  }
+  return lines.join("\n");
+}
+
 export function runSummaryText(r: RunResult): string {
   const a = r.analysis;
   const lines: string[] = [];
@@ -19,7 +33,7 @@ export function runSummaryText(r: RunResult): string {
   lines.push("");
   lines.push("Check            baseline  candidate  change (95% CI)           noise   n");
   for (const m of a.metrics) {
-    const flag = m.regression ? " ✗" : "";
+    const flag = (m.regression ? " ✗" : "") + (m.mode === "candidate-only" ? "  (candidate only)" : "");
     lines.push(
       `${m.name.padEnd(16)} ${pct(m.baseline).padStart(8)}  ${pct(m.candidate).padStart(9)}  ${`${signed(m.delta)} [${pct(m.ci[0])}, ${pct(m.ci[1])}]`.padEnd(26)} ±${pct(m.noiseFloor).padEnd(6)} ${m.samples}${flag}`,
     );

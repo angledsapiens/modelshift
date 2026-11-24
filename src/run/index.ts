@@ -30,6 +30,8 @@ export interface MetricResult {
   noiseFloor: number; // baseline's own run-to-run variation
   regression: boolean;
   severity: "fail" | "review";
+  /** "candidate-only" when the baseline produced no usable output (e.g. the old model was already removed). */
+  mode: "paired" | "candidate-only";
 }
 
 export interface Analysis {
@@ -184,14 +186,21 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
     const bases: number[] = [];
     const cands: number[] = [];
     const noises: number[] = [];
+    const candOnly: number[] = [];
     for (const run of runs) {
       const sample = byId.get(run.id);
       if (!sample) continue;
       const baselineOk = run.baseline.filter((r) => !r.error);
-      if (!def.applies(sample, baselineOk)) continue;
+      // With no working baseline, judge metrics that don't need one (assertions, JSON validity when requested).
+      const applies = baselineOk.length ? def.applies(sample, baselineOk) : def.name === "assertions" ? def.applies(sample, []) : def.name === "json-valid" ? !!sample.json : def.name === "refusals";
+      if (!applies) continue;
       const ctx = { sample, baselineOk };
       const b = metricValues(def, run.baseline, ctx);
       const c = metricValues(def, run.candidate, ctx);
+      if (!b.length && c.length) {
+        candOnly.push(mean(c));
+        continue;
+      }
       if (!b.length || !c.length) continue;
       const bm = mean(b);
       const cm = mean(c);
@@ -207,13 +216,22 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
         examples.push({ id: run.id, metric: def.name, baseline: trimOut(bResp), candidate: trimOut(cResp) });
       }
     }
-    if (!deltas.length) continue;
+    if (!deltas.length) {
+      if (candOnly.length) {
+        // No baseline to compare with: report the candidate's own rate and its CI.
+        const rate = mean(candOnly);
+        const ci = bootstrapMeanCI(candOnly);
+        const bad = def.direction === "higher-is-better" ? rate < 0.9 : rate > 0.1;
+        metrics.push({ name: def.name, description: def.description, direction: def.direction, samples: candOnly.length, baseline: NaN, candidate: rate, delta: NaN, ci, noiseFloor: NaN, regression: bad, severity: "review", mode: "candidate-only" });
+      }
+      continue;
+    }
     const delta = mean(deltas);
     const ci = bootstrapMeanCI(deltas);
     const noiseFloor = mean(noises);
     const worseSide = def.direction === "higher-is-better" ? ci[1] < 0 : ci[0] > 0;
     const regression = worseSide && Math.abs(delta) > noiseFloor;
-    metrics.push({ name: def.name, description: def.description, direction: def.direction, samples: deltas.length, baseline: mean(bases), candidate: mean(cands), delta, ci, noiseFloor, regression, severity: "fail" });
+    metrics.push({ name: def.name, description: def.description, direction: def.direction, samples: deltas.length, baseline: mean(bases), candidate: mean(cands), delta, ci, noiseFloor, regression, severity: "fail", mode: "paired" });
   }
 
   // Behaviour drift: is the candidate less similar to the baseline than the baseline is to itself?
@@ -261,13 +279,27 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
   };
 
   const reasons: string[] = [];
-  const fails = metrics.filter((m) => m.regression);
+  const baselineCalls = runs.flatMap((r) => r.baseline);
+  const baselineDead = baselineCalls.length > 0 && baselineCalls.every((r) => r.error);
+  if (baselineDead) {
+    const firstErr = baselineCalls[0].error ?? "";
+    reasons.push(`baseline unavailable: all ${baselineCalls.length} baseline calls failed (${firstErr.slice(0, 120)}). The old model may already be removed; results below judge the candidate on its own against your expected outputs.`);
+  }
+  const fails = metrics.filter((m) => m.regression && m.mode === "paired");
   for (const m of fails) reasons.push(`${m.name}: ${pct(m.baseline)} → ${pct(m.candidate)} (95% CI of change ${pct(m.ci[0])} to ${pct(m.ci[1])}, beyond the baseline's own variation of ±${pct(m.noiseFloor)})`);
+  for (const m of metrics.filter((x) => x.regression && x.mode === "candidate-only")) reasons.push(`${m.name}: candidate scores ${pct(m.candidate)} on its own (95% CI ${pct(m.ci[0])}–${pct(m.ci[1])}); no baseline to compare.`);
   if (drift.changed) reasons.push(`behaviour drift: outputs are less similar to the baseline (${drift.crossSimilarity.toFixed(2)}) than the baseline is to itself (${drift.baselineSelfSimilarity.toFixed(2)}). Review examples.`);
   if (perf.baselineLatencyMs && perf.candidateLatencyMs > perf.baselineLatencyMs * 2) reasons.push(`latency: median ${Math.round(perf.baselineLatencyMs)}ms → ${Math.round(perf.candidateLatencyMs)}ms`);
-  const verdict: Analysis["verdict"] = fails.length ? "unsafe" : reasons.length ? "review" : "likely-safe";
+  // Verdict rules:
+  //  - unsafe:      a paired check regressed beyond the noise floor
+  //  - review:      candidate-only checks fell short, behaviour drifted, or latency doubled
+  //  - likely-safe: none of the above
+  const candOnlyFails = metrics.some((m) => m.regression && m.mode === "candidate-only");
+  const softIssues = candOnlyFails || drift.changed || (perf.baselineLatencyMs > 0 && perf.candidateLatencyMs > perf.baselineLatencyMs * 2);
+  const verdict: Analysis["verdict"] = fails.length ? "unsafe" : softIssues ? "review" : "likely-safe";
   const n = runs.length;
-  const confidence: Analysis["confidence"] = n < 20 ? "low" : n < 50 ? "medium" : "high";
+  let confidence: Analysis["confidence"] = n < 20 ? "low" : n < 50 ? "medium" : "high";
+  if (baselineDead && confidence === "high") confidence = "medium"; // no noise floor without a baseline
   if (!reasons.length) reasons.push("No regression beyond the baseline's own run-to-run variation was detected.");
 
   return { metrics, drift, perf, verdict, confidence, reasons, examples };
