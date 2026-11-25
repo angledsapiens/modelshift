@@ -19,6 +19,7 @@ fi
 OUT_DIR="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/modelshift"
 mkdir -p "$OUT_DIR"
 MD="$OUT_DIR/summary.md"
+ERR="$(dirname "$OUT_DIR")/modelshift-stderr.log"
 status=ok
 code=0
 
@@ -28,8 +29,9 @@ case "$MS_COMMAND" in
     [ "$MS_LIVE" = "true" ] && args+=(--live)
     [ "$MS_PROBE" = "true" ] && args+=(--probe)
     [ -n "$MS_PROVIDERS" ] && args+=(--providers "$MS_PROVIDERS")
-    "${MS[@]}" "${args[@]}" > "$MD"
+    "${MS[@]}" "${args[@]}" > "$MD" 2> "$ERR"
     code=$?
+    cat "$ERR" >&2
     [ "$code" = "1" ] && status=flagged
     ;;
   run)
@@ -39,8 +41,9 @@ case "$MS_COMMAND" in
     # --yes: the workflow author configured this run explicitly; the call count is printed in the log.
     args=(run --from "$MS_FROM" --to "$MS_TO" --samples "$MS_SAMPLES" --repeats "$MS_REPEATS" --markdown --html "$REPORT" -o "$RESULTS" --yes --fail-on-unsafe)
     [ -n "$MS_JUDGE" ] && args+=(--judge "$MS_JUDGE")
-    "${MS[@]}" "${args[@]}" > "$MD"
+    "${MS[@]}" "${args[@]}" > "$MD" 2> "$ERR"
     code=$?
+    cat "$ERR" >&2
     [ "$code" = "1" ] && status=flagged
     echo "report=$REPORT" >> "$GITHUB_OUTPUT"
     ;;
@@ -49,7 +52,13 @@ case "$MS_COMMAND" in
 esac
 
 # A crash (no summary written) is an error regardless of the 'fail' input.
-if [ ! -s "$MD" ]; then echo "::error::modelshift produced no output (exit $code)"; echo "exit=${code/#0/1}" >> "$GITHUB_OUTPUT"; exit 0; fi
+if [ ! -s "$MD" ]; then
+  why=$(grep -v '^\s*$' "$ERR" 2>/dev/null | grep -vi 'warning' | tail -n 3)
+  echo "::error::modelshift produced no output (exit $code)${why:+: ${why//$'\n'/ }}"
+  { echo "### modelshift could not run"; echo; echo '```'; echo "${why:-exit code $code, no error message}"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+  echo "exit=${code/#0/1}" >> "$GITHUB_OUTPUT"
+  exit 0
+fi
 
 cat "$MD"
 cat "$MD" >> "$GITHUB_STEP_SUMMARY"
