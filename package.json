@@ -1,9 +1,17 @@
 {
   "name": "modelshift",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Know what breaks before your LLM is switched off: find retiring, removed and silently redirected models in your repo, and test replacements with honest statistics.",
   "license": "MIT",
   "author": "Angled Sapiens (https://github.com/angledsapiens)",
+  "homepage": "https://github.com/angledsapiens/modelshift#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/angledsapiens/modelshift.git"
+  },
+  "bugs": {
+    "url": "https://github.com/angledsapiens/modelshift/issues"
+  },
   "type": "module",
   "bin": {
     "modelshift": "dist/src/bin.js"

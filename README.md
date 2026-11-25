@@ -62,8 +62,6 @@ npx modelshift run --from openai:gpt-4o-2024-08-06 --to openai:gpt-6-luna --html
 
 You need **Node.js 20 or newer**. There are no other dependencies.
 
-> modelshift is at version 0.0.1. Until it is published on npm, install it from source (below) and use `node dist/src/bin.js` wherever this README says `npx modelshift`.
-
 ```bash
 npx modelshift --help          # run without installing
 npm install -g modelshift      # or install the command globally
