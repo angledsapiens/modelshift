@@ -127,6 +127,7 @@ The smaller model looks fine at a glance and is faster, but it drops required JS
 - **Old model already gone?** If every baseline call fails, candidates are judged on their own against each sample's expected output. Give several candidates (`--to a,b,c`) to compare them in one table.
 - **Resilient:** rate limits (429), overloaded responses and 5xx errors are retried with backoff. Only persistent failures count as errors.
 - **Response cache:** successful responses are cached in `.modelshift/cache` (git-ignored automatically), keyed by model, exact request and repeat number. Re-running, re-judging or adding another candidate only pays for new calls, and the old model is called once even with several candidates. `--no-cache` always calls the models.
+- **Problems are never hidden:** failed calls (grouped by error, with the likely cause), samples left out, answers cut off by the token limit, judge or embedding calls that failed, and checks with too few samples are listed under "Problems during testing" at the top of every report. If part of the test didn't run, the verdict can't be "likely safe" and `--fail-on-unsafe` exits 1. `scan --live` lists the providers and probes it couldn't check the same way.
 - **Spend guard:** `run` prints the number of calls before starting and requires `--yes` above 60 calls.
 
 **Providers for `run`:** `openai`, `anthropic`, `google`, `azure` (deployment name; set `AZURE_OPENAI_ENDPOINT`), `bedrock`, `mistral`, `deepinfra`, `together`, `fireworks`, `groq`, `openrouter`.

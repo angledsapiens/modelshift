@@ -1,4 +1,5 @@
 import type { MetricResult, RunResult } from "../run/index.js";
+import type { Problem } from "../run/problems.js";
 import { assertionsPass, outputRepr } from "../run/checks.js";
 import type { ChatResponse } from "../providers/index.js";
 
@@ -10,6 +11,7 @@ import type { ChatResponse } from "../providers/index.js";
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const pct = (x: number) => (Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : "—");
+const ms = (x: number, sep = "") => (Number.isFinite(x) ? `${Math.round(x)}${sep}ms` : "—");
 const signed = (x: number) => (Number.isFinite(x) ? (x >= 0 ? "+" : "") + pct(x) : "—");
 
 const VERDICT: Record<string, { label: string; cls: string; blurb: string }> = {
@@ -122,12 +124,22 @@ function servedNote(r: RunResult): string {
   return notes.length ? `<p class="small">${notes.join("<br>")}</p>` : "";
 }
 
+function problemsBox(problems: Problem[]): string {
+  if (!problems.length) return "";
+  const sorted = [...problems].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "blocker" ? -1 : 1));
+  const blockers = problems.filter((p) => p.severity === "blocker").length;
+  return `<div class="problems ${blockers ? "bad" : "warn"}" role="alert">
+    <div class="p-title">Problems during testing (${problems.length})${blockers ? ` · ${blockers} stopped part of the test, so the verdict can't be "safe"` : ""}</div>
+    <ul>${sorted.map((p) => `<li><span class="pill ${p.severity === "blocker" ? "bad" : "warn"}">${p.severity === "blocker" ? "Blocked" : "Warning"}</span> <strong>${esc(p.title)}.</strong> ${esc(p.detail)}</li>`).join("")}</ul>
+  </div>`;
+}
+
 function section(r: RunResult, idx: number, multi: boolean): string {
   const a = r.analysis;
   const v = VERDICT[a.verdict];
   const p = a.perf;
   const perfRows = [
-    ["Median latency", `${Math.round(p.baselineLatencyMs)} ms`, `${Math.round(p.candidateLatencyMs)} ms`],
+    ["Median latency", `${ms(p.baselineLatencyMs, " ")}`, `${ms(p.candidateLatencyMs, " ")}`],
     ...(p.baselineOutputTokens !== undefined || p.candidateOutputTokens !== undefined ? [["Median output tokens", String(p.baselineOutputTokens ?? "—"), String(p.candidateOutputTokens ?? "—")]] : []),
     ...(p.baselineCost !== undefined || p.candidateCost !== undefined ? [["Mean cost per call", p.baselineCost !== undefined ? `$${p.baselineCost.toFixed(5)}` : "—", p.candidateCost !== undefined ? `$${p.candidateCost.toFixed(5)}` : "—"]] : []),
     ...(a.drift.samples ? [["Answer similarity (word overlap)", `${a.drift.baselineSelfSimilarity.toFixed(2)} vs itself`, `${a.drift.crossSimilarity.toFixed(2)} vs baseline${a.drift.changed ? " ⚠" : ""}`]] : []),
@@ -148,6 +160,7 @@ function section(r: RunResult, idx: number, multi: boolean): string {
     <div class="v-blurb">${esc(v.blurb)}</div>
   </div>
   <ul class="reasons">${a.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+  ${problemsBox(a.problems ?? [])}
   ${servedNote(r)}
   <h3>Checks</h3>
   <div class="scroll"><table>
@@ -171,12 +184,13 @@ function comparison(results: RunResult[]): string {
 <tbody>${results
     .map((r, i) => {
       const v = VERDICT[r.analysis.verdict];
-      return `<tr><td><a href="#c${i}"><code>${esc(r.meta.candidate)}</code></a></td><td><span class="pill ${v.cls}">${esc(v.label)}</span></td>${names
+      const blocked = (r.analysis.problems ?? []).some((p) => p.severity === "blocker");
+      return `<tr><td><a href="#c${i}"><code>${esc(r.meta.candidate)}</code></a></td><td><span class="pill ${v.cls}">${esc(v.label)}</span>${blocked ? ` <span class="pill bad">Incomplete</span>` : ""}</td>${names
         .map((n) => {
           const m = r.analysis.metrics.find((x) => x.name === n);
           return `<td class="num${m?.regression ? " bad-text" : ""}">${m ? pct(m.candidate) : "—"}</td>`;
         })
-        .join("")}<td class="num">${Math.round(r.analysis.perf.candidateLatencyMs)} ms</td></tr>`;
+        .join("")}<td class="num">${ms(r.analysis.perf.candidateLatencyMs, " ")}</td></tr>`;
     })
     .join("")}</tbody></table></div>`;
 }
@@ -200,6 +214,9 @@ code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em;
 .v-label{font-size:22px;font-weight:700}.verdict.ok .v-label{color:var(--ok)}.verdict.warn .v-label{color:var(--warn)}.verdict.bad .v-label{color:var(--bad)}
 .v-meta{margin-top:4px;font-size:13.5px}.v-blurb{margin-top:6px;font-size:13.5px;color:var(--muted)}
 .reasons{padding-left:20px;margin:8px 0}.reasons li{margin:4px 0}
+.problems{border-radius:10px;padding:12px 16px;margin:12px 0;border:1px solid}.problems.bad{background:var(--bad-bg);border-color:var(--bad)}.problems.warn{background:var(--warn-bg);border-color:var(--warn)}
+.p-title{font-weight:700}.problems.bad .p-title{color:var(--bad)}.problems.warn .p-title{color:var(--warn)}
+.problems ul{padding-left:18px;margin:8px 0 0}.problems li{margin:6px 0}
 .scroll{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}
 table{border-collapse:collapse;width:100%;font-size:14px}
 th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}

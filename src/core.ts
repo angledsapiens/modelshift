@@ -175,7 +175,7 @@ export async function runCore(o: RunOptions, hooks: { onPlan?: (p: RunPlan) => v
       const e = await embedRuns(runs, embedder, { cache, concurrency, pool, onProgress: (d, t) => hooks.onProgress?.(`embed ${candidate.spec}`, d, t) });
       if (e.failed) hooks.onWarning?.(`${e.failed} outputs could not be embedded with ${embedder.spec}: ${e.error ?? "unknown error"}`);
     }
-    const analysis = analyze(samples, runs, { prices, baselineSpec: baseline.spec, candidateSpec: candidate.spec });
+    const analysis = analyze(samples, runs, { prices, baselineSpec: baseline.spec, candidateSpec: candidate.spec, judge: meta.judge, embed: meta.embed, repeats });
     const result: RunResult = { meta, samples, runs, analysis };
     const out = candidates.length === 1 ? outBase : outBase.replace(/(\.json)?$/, `-${i + 1}.json`);
     writeFileSync(out, JSON.stringify(result, null, 2));
@@ -234,7 +234,7 @@ export function loadResults(files: string[]): RunResult[] {
     if (!r?.meta || !r?.analysis || !Array.isArray(r.runs)) throw new UsageError(`${f} is not a modelshift results file.`);
     // Re-analyse from the raw runs so files from older versions get current checks.
     // Costs depend on --prices, which isn't stored, so keep the recorded ones.
-    const fresh = analyze(r.samples, r.runs, { baselineSpec: r.meta.baseline, candidateSpec: r.meta.candidate });
+    const fresh = analyze(r.samples, r.runs, { baselineSpec: r.meta.baseline, candidateSpec: r.meta.candidate, judge: r.meta.judge, embed: r.meta.embed, repeats: r.meta.repeats });
     fresh.perf.baselineCost = r.analysis.perf?.baselineCost;
     fresh.perf.candidateCost = r.analysis.perf?.candidateCost;
     return { ...r, analysis: fresh };

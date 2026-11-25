@@ -40,7 +40,7 @@ inputs:
     description: "run: optional provider:model for the LLM-judge check"
     default: ""
   fail:
-    description: "Fail the step when the result is flagged (scan: at fail-on level; run: verdict unsafe)"
+    description: "Fail the step when the result is flagged (scan: at fail-on level; run: verdict unsafe or testing incomplete)"
     default: "true"
   comment:
     description: "On pull requests, post or update a PR comment with the summary (needs pull-requests: write)"

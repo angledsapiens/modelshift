@@ -5,6 +5,7 @@ import { assertionsPass, hasAssertions, isJson, isRefusal, mode, outputRepr, sim
 import type { JudgeScores } from "./judge.js";
 import { ResponseCache } from "./cache.js";
 import { SEMANTIC_MIN_EFFECT, type SemanticScores } from "./semantic.js";
+import { findProblems, type Problem } from "./problems.js";
 
 export interface SampleRun {
   id: string;
@@ -59,6 +60,8 @@ export interface Analysis {
   verdict: "likely-safe" | "review" | "unsafe";
   confidence: "low" | "medium" | "high";
   reasons: string[];
+  /** What went wrong while testing (failed calls, checks that didn't run...). Blockers stop a "likely-safe" verdict. */
+  problems: Problem[];
   examples: { id: string; metric: string; baseline: string; candidate: string }[];
 }
 
@@ -212,7 +215,7 @@ function costOf(rs: ChatResponse[], price?: { input: number; output: number }): 
   return mean(withUsage.map((r) => ((r.inputTokens ?? 0) * price.input + (r.outputTokens ?? 0) * price.output) / 1_000_000));
 }
 
-export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: Prices; baselineSpec?: string; candidateSpec?: string } = {}): Analysis {
+export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: Prices; baselineSpec?: string; candidateSpec?: string; judge?: string; embed?: string; repeats?: number } = {}): Analysis {
   const byId = new Map(samples.map((s) => [s.id, s]));
   const metrics: MetricResult[] = [];
   const examples: Analysis["examples"] = [];
@@ -345,13 +348,19 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
   //  - likely-safe: none of the above
   const candOnlyFails = metrics.some((m) => m.regression && (m.mode === "candidate-only" || m.severity === "review"));
   const softIssues = candOnlyFails || near.length > 0 || drift.changed || reasons.some((x) => x.includes(" redirected: ")) || (perf.baselineLatencyMs > 0 && perf.candidateLatencyMs > perf.baselineLatencyMs * 2);
-  const verdict: Analysis["verdict"] = fails.length ? "unsafe" : softIssues ? "review" : "likely-safe";
+  const problems = findProblems(runs, metrics, { baselineSpec: opts.baselineSpec, candidateSpec: opts.candidateSpec, judge: opts.judge, embed: opts.embed, repeats: opts.repeats });
+  const blockers = problems.filter((p) => p.severity === "blocker");
+  // An incomplete test can't clear a model: at most "review", with low confidence.
+  const verdict: Analysis["verdict"] = fails.length ? "unsafe" : softIssues || blockers.length ? "review" : "likely-safe";
   const n = runs.length;
   let confidence: Analysis["confidence"] = n < 20 ? "low" : n < 50 ? "medium" : "high";
   if (baselineDead && confidence === "high") confidence = "medium"; // no noise floor without a baseline
+  if (blockers.length) confidence = "low";
+  else if (problems.length && confidence === "high") confidence = "medium";
+  if (blockers.length) reasons.unshift(`Testing was incomplete (${blockers.map((b) => b.title.toLowerCase()).join("; ")}), so this can't be called safe. See "Problems during testing".`);
   if (!reasons.length) reasons.push("No regression beyond the baseline's own run-to-run variation was detected.");
 
-  return { metrics, drift, perf, verdict, confidence, reasons, examples };
+  return { metrics, drift, perf, verdict, confidence, reasons, problems, examples };
 }
 
 /**

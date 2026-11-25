@@ -26,6 +26,19 @@ function when(a: Assessment): string {
   return "";
 }
 
+/** What the live check couldn't do: providers it couldn't read and probes that didn't run. */
+export function liveGaps(list: Assessment[], results: ProviderResult[]): { severity: "error" | "skipped"; text: string }[] {
+  const gaps: { severity: "error" | "skipped"; text: string }[] = [];
+  for (const r of results) {
+    if (r.ok) continue;
+    if (r.error) gaps.push({ severity: "error", text: `${r.provider}: couldn't read its model list (${r.error}). Its models were only checked against the retirement calendar.` });
+    else gaps.push({ severity: "skipped", text: `${r.provider}: not checked live (${r.skipped}). Its models were only checked against the retirement calendar.` });
+  }
+  const probe = list.filter((a) => /\(probe (failed|skipped):/.test(a.note ?? ""));
+  if (probe.length) gaps.push({ severity: "error", text: `${probe.length} probe${probe.length > 1 ? "s" : ""} didn't run (${probe.map((a) => a.id).slice(0, 4).join(", ")}${probe.length > 4 ? "…" : ""}), so it's unknown whether ${probe.length > 1 ? "those models fail or are" : "that model fails or is"} silently redirected. See the notes above.` });
+  return gaps;
+}
+
 export function toText(list: Assessment[], results: ProviderResult[], meta: { root: string; calendarUpdated: string; live: boolean }): string {
   const out: string[] = [];
   const risky = list.filter((a) => a.status !== "ok");
@@ -50,9 +63,12 @@ export function toText(list: Assessment[], results: ProviderResult[], meta: { ro
   out.push(`${risky.length} model id(s) need attention, ${okCount} with no known retirement.`);
   if (meta.live && risky.some((a) => a.status === "unlisted")) out.push(dim("Some models are not in their host's list: add --probe to check whether they fail or are silently redirected."));
   if (meta.live) {
-    for (const r of results) {
-      if (r.ok) out.push(dim(`  live: ${r.provider} ✓ (${r.models?.size ?? 0} models listed)`));
-      else out.push(dim(`  live: ${r.provider} skipped — ${r.skipped ?? r.error}`));
+    for (const r of results) if (r.ok) out.push(dim(`  live: ${r.provider} ✓ (${r.models?.size ?? 0} models listed)`));
+    const gaps = liveGaps(list, results);
+    if (gaps.length) {
+      out.push("");
+      out.push(yellow(bold(`Live check incomplete (${gaps.length}):`)));
+      for (const g of gaps) out.push(g.severity === "error" ? red(`  ✖ ${g.text}`) : yellow(`  ! ${g.text}`));
     }
   } else {
     out.push(dim("Tip: run with --live --probe to catch models hosts like DeepInfra removed or silently swapped (probe needs that host's API key)."));
@@ -60,7 +76,7 @@ export function toText(list: Assessment[], results: ProviderResult[], meta: { ro
   return out.join("\n");
 }
 
-export function toMarkdown(list: Assessment[], meta: { calendarUpdated: string }): string {
+export function toMarkdown(list: Assessment[], meta: { calendarUpdated: string }, results: ProviderResult[] = []): string {
   const risky = list.filter((a) => a.status !== "ok");
   const lines = [
     `### Model retirement check`,
@@ -68,6 +84,12 @@ export function toMarkdown(list: Assessment[], meta: { calendarUpdated: string }
     risky.length ? `**${risky.length} model id(s) need attention.**` : `No retiring models found. ✅`,
     ``,
   ];
+  const gaps = liveGaps(list, results);
+  if (gaps.length) {
+    lines.push(`> [!${gaps.some((g) => g.severity === "error") ? "CAUTION" : "WARNING"}]`, `> **Live check incomplete**`);
+    for (const g of gaps) lines.push(`> - ${g.severity === "error" ? "✖" : "⚠️"} ${g.text}`);
+    lines.push("");
+  }
   if (risky.length) {
     lines.push(`| Status | Model | When | Replacement | Used at |`, `|---|---|---|---|---|`);
     for (const a of risky) {

@@ -1,5 +1,18 @@
 import type { RunResult } from "./index.js";
+import type { Problem } from "./problems.js";
 
+/** Plain-text list of problems during testing, blockers first. */
+export function problemsText(problems: Problem[], indent = "  "): string[] {
+  if (!problems.length) return [];
+  const sorted = [...problems].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "blocker" ? -1 : 1));
+  const blockers = problems.filter((p) => p.severity === "blocker").length;
+  const lines = [`Problems during testing (${problems.length}${blockers ? `, ${blockers} stopped part of the test` : ""}):`];
+  for (const p of sorted) lines.push(`${indent}${p.severity === "blocker" ? "✖" : "!"} ${p.title}`, `${indent}  ${p.detail}`);
+  return lines;
+}
+
+/** Median latency, or "—" when the model never answered. */
+const ms = (x: number, sep = "") => (Number.isFinite(x) ? `${Math.round(x)}${sep}ms` : "—");
 const pct = (x: number) => (Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : "n/a");
 const signed = (x: number) => (x >= 0 ? "+" : "") + pct(x);
 
@@ -18,8 +31,10 @@ export function compareCandidatesText(list: { spec: string; result: RunResult }[
       const m = a.metrics.find((x) => x.name === n);
       return (m ? pct(m.candidate) + (m.regression ? "✗" : "") : "—").padEnd(11);
     });
-    lines.push([spec.padEnd(42), a.verdict.padEnd(12), ...cells, `${Math.round(a.perf.candidateLatencyMs)}ms`].join(" "));
+    const incomplete = (a.problems ?? []).some((p) => p.severity === "blocker");
+    lines.push([spec.padEnd(42), (a.verdict + (incomplete ? "*" : "")).padEnd(12), ...cells, `${ms(a.perf.candidateLatencyMs, "")}`].join(" "));
   }
+  if (list.some(({ result }) => (result.analysis.problems ?? []).some((p) => p.severity === "blocker"))) lines.push("* testing was incomplete for this candidate: see its problems above");
   return lines.join("\n");
 }
 
@@ -30,6 +45,8 @@ export function runSummaryText(r: RunResult): string {
   lines.push(`${r.meta.baseline}  →  ${r.meta.candidate}   (${r.runs.length} samples × ${r.meta.repeats} repeats)`);
   lines.push(`Verdict: ${VERDICT[a.verdict]}  (confidence: ${a.confidence}${a.confidence === "low" ? " — add more samples" : ""}; never a guarantee)`);
   for (const reason of a.reasons) lines.push(`  - ${reason}`);
+  const problems = problemsText(a.problems ?? []);
+  if (problems.length) lines.push("", ...problems);
   lines.push("");
   lines.push("Check            baseline  candidate  change (95% CI)           noise   n");
   for (const m of a.metrics) {
@@ -45,7 +62,7 @@ export function runSummaryText(r: RunResult): string {
   }
   const p = a.perf;
   lines.push("");
-  lines.push(`Latency (median): ${Math.round(p.baselineLatencyMs)}ms → ${Math.round(p.candidateLatencyMs)}ms`);
+  lines.push(`Latency (median): ${ms(p.baselineLatencyMs, "")} → ${ms(p.candidateLatencyMs, "")}`);
   if (p.baselineOutputTokens !== undefined || p.candidateOutputTokens !== undefined) lines.push(`Output tokens (median): ${p.baselineOutputTokens ?? "?"} → ${p.candidateOutputTokens ?? "?"}`);
   if (p.baselineCost !== undefined || p.candidateCost !== undefined) lines.push(`Cost per call (mean): $${p.baselineCost?.toFixed(5) ?? "?"} → $${p.candidateCost?.toFixed(5) ?? "?"}`);
   if (a.examples.length) {
@@ -70,13 +87,19 @@ export function runMarkdown(results: RunResult[]): string {
     lines.push("");
     for (const reason of a.reasons) lines.push(`- ${reason}`);
     lines.push("");
+    const problems = [...(a.problems ?? [])].sort((x, y) => (x.severity === y.severity ? 0 : x.severity === "blocker" ? -1 : 1));
+    if (problems.length) {
+      lines.push(`> [!${problems.some((p) => p.severity === "blocker") ? "CAUTION" : "WARNING"}]`, `> **Problems during testing**`);
+      for (const p of problems) lines.push(`> - ${p.severity === "blocker" ? "✖" : "⚠️"} **${p.title}.** ${p.detail}`);
+      lines.push("");
+    }
     lines.push("| Check | Baseline | Candidate | Change (95% CI) | Noise | |");
     lines.push("|---|---:|---:|---|---:|---|");
     for (const m of a.metrics) {
       const ci = m.mode === "paired" ? `${signed(m.delta)} [${pct(m.ci[0])}, ${pct(m.ci[1])}]` : "candidate only";
       lines.push(`| ${m.name} | ${pct(m.baseline)} | ${pct(m.candidate)} | ${ci} | ${Number.isFinite(m.noiseFloor) ? "±" + pct(m.noiseFloor) : "—"} | ${m.regression ? (m.severity === "review" ? "⚠️" : "❌") : "✅"} |`);
     }
-    lines.push(`| latency (median) | ${Math.round(a.perf.baselineLatencyMs)}ms | ${Math.round(a.perf.candidateLatencyMs)}ms | | | |`);
+    lines.push(`| latency (median) | ${ms(a.perf.baselineLatencyMs, "")} | ${ms(a.perf.candidateLatencyMs, "")} | | | |`);
     lines.push("");
   }
   lines.push("<sub>A check fails only when the 95% CI of the change is entirely on the worse side and larger than the baseline's own run-to-run variation. Never a guarantee.</sub>");

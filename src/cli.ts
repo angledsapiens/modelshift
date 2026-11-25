@@ -66,7 +66,7 @@ run options:
                             re-runs and extra candidates don't pay twice; failed calls are never cached)
   --cache-dir <dir>         Cache folder (default .modelshift/cache)
   --yes                     Skip the confirmation required above ${CONFIRM_ABOVE_CALLS} API calls
-  --fail-on-unsafe          Exit 1 when the verdict is "unsafe" (for CI)
+  --fail-on-unsafe          Exit 1 when the verdict is "unsafe" or testing was incomplete (for CI)
 
 report options:
   -o, --out <file>          Output HTML (default: modelshift-report.html). Several results files = one report
@@ -130,7 +130,7 @@ async function cmdScan(args: Args): Promise<number> {
     today: args.opts["--today"],
   });
   if (args.flags.has("--json")) process.stdout.write(JSON.stringify(scanJson(res), null, 2) + "\n");
-  else if (args.flags.has("--markdown")) process.stdout.write(toMarkdown(res.models, { calendarUpdated: res.calendar.updated }) + "\n");
+  else if (args.flags.has("--markdown")) process.stdout.write(toMarkdown(res.models, { calendarUpdated: res.calendar.updated }, res.live) + "\n");
   else process.stdout.write(toText(res.models, res.live, { root: res.root, calendarUpdated: res.calendar.updated, live: args.live }) + "\n");
   if (args.failOn && res.models.some((m) => FAIL_LEVELS[args.failOn!].includes(m.status))) return 1;
   return 0;
@@ -193,7 +193,7 @@ async function cmdRun(args: Args): Promise<number> {
     if (res.results.length > 1) log("\n" + compareCandidatesText(res.results.map((r) => ({ spec: r.spec, result: r.result }))));
     if (res.html) log(`HTML report: ${res.html}`);
     if (markdown) process.stdout.write(runMarkdown(res.results.map((r) => r.result)) + "\n");
-    return args.flags.has("--fail-on-unsafe") && res.results.some((r) => r.result.analysis.verdict === "unsafe") ? 1 : 0;
+    return args.flags.has("--fail-on-unsafe") && res.results.some((r) => r.result.analysis.verdict === "unsafe" || r.result.analysis.problems.some((p) => p.severity === "blocker")) ? 1 : 0;
   } catch (e) {
     if (e instanceof SpendGuardError) {
       err(e.message);
