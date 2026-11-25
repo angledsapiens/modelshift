@@ -201,7 +201,10 @@ export async function liveCheck(
       if (!hit) {
         probeTargets.push({ a, p, prev: a.status, prevNote: a.note });
         a.status = "unlisted";
-        a.note = `Not in ${p}'s public model list today. The host may have removed it, or may silently serve a different model under this name — run with --probe to find out.${a.note ? " " + a.note : ""}`;
+        a.note =
+          p === "bedrock"
+            ? `Not in Bedrock's model list for ${env.AWS_REGION || env.AWS_DEFAULT_REGION || "us-east-1"}. Bedrock may have retired it, or it isn't offered in this region — run with --probe to find out.${a.note ? " " + a.note : ""}`
+            : `Not in ${p}'s public model list today. The host may have removed it, or may silently serve a different model under this name — run with --probe to find out.${a.note ? " " + a.note : ""}`;
         break;
       }
       if (hit.deprecation && a.status !== "retiring") {
