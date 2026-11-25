@@ -1,4 +1,5 @@
 import type { Assessment, Family, Host } from "../types.js";
+import { bedrockAuth } from "../providers/aws.js";
 
 /**
  * Live check: ask each provider which models it serves right now, and flag ids the
@@ -7,7 +8,7 @@ import type { Assessment, Family, Host } from "../types.js";
  * deprecation page and its /models objects have no deprecation field).
  */
 
-export type ProviderName = Host | "openai" | "anthropic" | "google" | "mistral";
+export type ProviderName = Host | "openai" | "anthropic" | "google" | "mistral" | "bedrock";
 
 interface ProviderDef {
   name: ProviderName;
@@ -17,6 +18,8 @@ interface ProviderDef {
   headers?: (key: string) => Record<string, string>;
   /** Strip provider-specific prefixes so ids compare with repo ids. */
   normalize?: (id: string) => string;
+  /** Builds the URL and auth headers itself (e.g. AWS signing); a string means "skip, because...". */
+  request?: (env: NodeJS.ProcessEnv) => { url: string; headers: Record<string, string> } | string;
 }
 
 export const PROVIDERS: ProviderDef[] = [
@@ -42,7 +45,27 @@ export const PROVIDERS: ProviderDef[] = [
   { name: "fireworks", url: "https://api.fireworks.ai/inference/v1/models", keyEnv: ["FIREWORKS_API_KEY"], keyRequired: true },
   { name: "groq", url: "https://api.groq.com/openai/v1/models", keyEnv: ["GROQ_API_KEY"], keyRequired: true },
   { name: "openrouter", url: "https://openrouter.ai/api/v1/models", keyEnv: ["OPENROUTER_API_KEY"], keyRequired: false },
+  {
+    // ListFoundationModels: Bedrock marks models it is retiring as LEGACY.
+    name: "bedrock",
+    url: "https://bedrock.us-east-1.amazonaws.com/foundation-models",
+    keyEnv: ["AWS_BEARER_TOKEN_BEDROCK", "AWS_ACCESS_KEY_ID"],
+    keyRequired: true,
+    request: (env) => {
+      let auth;
+      try {
+        auth = bedrockAuth(env);
+      } catch {
+        return "set AWS_BEARER_TOKEN_BEDROCK or AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (and AWS_REGION) to check live";
+      }
+      const url = `https://bedrock.${auth.region}.amazonaws.com/foundation-models`;
+      return { url, headers: auth.headers("GET", url, "") };
+    },
+  },
 ];
+
+/** Bedrock cross-region inference profiles ("us.", "eu.", "global."...) wrap a base model id. */
+const BEDROCK_PROFILE = /^(us|eu|apac|global|jp|au|ca|us-gov)\./;
 
 export interface LiveModel {
   id: string;
@@ -72,15 +95,20 @@ function extractDeprecation(obj: Record<string, unknown>): string | undefined {
     }
   }
   if (obj.deprecated === true) return "deprecated";
+  const life = obj.modelLifecycle as Record<string, unknown> | undefined;
+  if (life && life.status === "LEGACY") {
+    const eol = life.endOfLifeTime ?? life.endOfLifeDate;
+    return eol ? `LEGACY, end of life ${String(eol).slice(0, 10)}` : "LEGACY";
+  }
   return undefined;
 }
 
 export function parseModelList(body: unknown, normalize?: (id: string) => string): Map<string, LiveModel> {
   const b = body as Record<string, unknown>;
-  const arr = (Array.isArray(b?.data) ? b.data : Array.isArray(b?.models) ? b.models : Array.isArray(body) ? body : []) as Record<string, unknown>[];
+  const arr = (Array.isArray(b?.data) ? b.data : Array.isArray(b?.models) ? b.models : Array.isArray(b?.modelSummaries) ? b.modelSummaries : Array.isArray(body) ? body : []) as Record<string, unknown>[];
   const map = new Map<string, LiveModel>();
   for (const m of arr) {
-    const raw = (m.id ?? m.name) as string | undefined;
+    const raw = (m.id ?? m.modelId ?? m.name) as string | undefined;
     if (!raw) continue;
     const id = (normalize ? normalize(raw) : raw).toLowerCase();
     map.set(id, { id, deprecation: extractDeprecation(m) });
@@ -91,10 +119,16 @@ export function parseModelList(body: unknown, normalize?: (id: string) => string
 export async function fetchProvider(def: ProviderDef, env: NodeJS.ProcessEnv, fetchFn: FetchLike): Promise<ProviderResult> {
   const key = def.keyEnv.map((k) => env[k]).find(Boolean);
   if (!key && def.keyRequired) return { provider: def.name, ok: false, skipped: `set ${def.keyEnv.join(" or ")} to check live` };
-  const headers: Record<string, string> = key ? (def.headers ? def.headers(key) : { Authorization: `Bearer ${key}` }) : {};
+  let headers: Record<string, string> = key ? (def.headers ? def.headers(key) : { Authorization: `Bearer ${key}` }) : {};
+  let first = def.url;
+  if (def.request) {
+    const r = def.request(env);
+    if (typeof r === "string") return { provider: def.name, ok: false, skipped: r };
+    ({ url: first, headers } = r);
+  }
   try {
     const models = new Map<string, LiveModel>();
-    let url: string | undefined = def.url;
+    let url: string | undefined = first;
     for (let page = 0; url && page < 20; page++) {
       const res = await fetchFn(url, { headers, signal: AbortSignal.timeout(20_000) });
       if (!res.ok) return { provider: def.name, ok: false, error: `HTTP ${res.status}` };
@@ -112,7 +146,7 @@ export async function fetchProvider(def: ProviderDef, env: NodeJS.ProcessEnv, fe
 
 /** Which providers can tell us whether this id is still served. */
 export function providersFor(a: Assessment, repoHosts: Host[] = []): ProviderName[] {
-  const byFamily: Partial<Record<Family, ProviderName>> = { openai: "openai", anthropic: "anthropic", google: "google", mistral: "mistral" };
+  const byFamily: Partial<Record<Family, ProviderName>> = { openai: "openai", anthropic: "anthropic", google: "google", mistral: "mistral", bedrock: "bedrock" };
   const hosts = a.hosts.length ? a.hosts : repoHosts;
   // Only "<vendor>/<model>" ids are gateway ids; "models/gemini-x" is Google's own path format.
   const viaGateway = a.locations.some((l) => /^(openai|anthropic|google|mistralai|deepseek|x-ai|cohere)\//i.test(l.rawId));
@@ -133,7 +167,15 @@ export function providersFor(a: Assessment, repoHosts: Host[] = []): ProviderNam
 function liveKey(a: Assessment): string[] {
   // Hosts list org/model ids; compare both the full raw id and the normalized id.
   const raws = a.locations.map((l) => l.rawId.toLowerCase());
-  return [...new Set([a.id, ...raws])];
+  const keys = [a.id, ...raws];
+  if (a.family === "bedrock") {
+    // Compare the base model of an inference profile, with and without the ":0" version suffix.
+    for (const k of [...keys]) {
+      const base = k.replace(BEDROCK_PROFILE, "");
+      keys.push(base, /:\d+$/.test(base) ? base : `${base}:0`);
+    }
+  }
+  return [...new Set(keys)];
 }
 
 export async function liveCheck(
@@ -219,6 +261,6 @@ async function probeModel(provider: ProviderName, model: string, env: NodeJS.Pro
     return { skipped: (e as Error).message };
   }
   const r = await chat.chat({ messages: [{ role: "user", content: "Reply with: OK" }], max_tokens: 1, temperature: 0 });
-  if (r.error) return /\b404\b|does not exist|not[ _-]found/i.test(r.error) ? { notFound: true } : { error: r.error };
+  if (r.error) return /\b404\b|does not exist|not[ _-]found|model identifier is invalid|end of (its )?life/i.test(r.error) ? { notFound: true } : { error: r.error };
   return { served: r.servedModel ?? model };
 }

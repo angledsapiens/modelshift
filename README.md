@@ -55,8 +55,9 @@ npx modelshift scan --live --probe  # ask hosts what they actually serve under e
 ```
 --live                 query live model lists (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY,
                        MISTRAL_API_KEY, DEEPINFRA_API_KEY, TOGETHER_API_KEY, FIREWORKS_API_KEY,
-                       GROQ_API_KEY, OPENROUTER_API_KEY; DeepInfra and OpenRouter work without a key)
---providers a,b        limit live checks (openai, anthropic, google, mistral, deepinfra, together, fireworks, groq, openrouter)
+                       GROQ_API_KEY, OPENROUTER_API_KEY, AWS credentials for Bedrock;
+                       DeepInfra and OpenRouter work without a key)
+--providers a,b        limit live checks (openai, anthropic, google, mistral, deepinfra, together, fireworks, groq, openrouter, bedrock)
 --json | --markdown    machine-readable output / PR-comment summary
 --fail-on <level>      exit 1 on: retired | retiring | any   (use in CI)
 --calendar <file>      custom calendar JSON
@@ -128,7 +129,26 @@ The smaller model looks fine at a glance and is faster, but it drops required JS
 - **Response cache:** successful responses are cached in `.modelshift/cache` (git-ignored automatically), keyed by model, exact request and repeat number. Re-running, re-judging or adding another candidate only pays for new calls, and the old model is called once even with several candidates. `--no-cache` always calls the models.
 - **Spend guard:** `run` prints the number of calls before starting and requires `--yes` above 60 calls.
 
-**Providers for `run`:** `openai`, `anthropic`, `google`, `azure` (deployment name; set `AZURE_OPENAI_ENDPOINT`), `mistral`, `deepinfra`, `together`, `fireworks`, `groq`, `openrouter`.
+**Providers for `run`:** `openai`, `anthropic`, `google`, `azure` (deployment name; set `AZURE_OPENAI_ENDPOINT`), `bedrock`, `mistral`, `deepinfra`, `together`, `fireworks`, `groq`, `openrouter`.
+
+### AWS Bedrock
+
+Use any Bedrock chat model id, inference profile or ARN. modelshift calls Bedrock's Converse API, so Claude, Llama, Nova, Mistral and the rest work the same way, including tool calls. It needs no AWS SDK.
+
+```sh
+export AWS_REGION=eu-west-2
+export AWS_BEARER_TOKEN_BEDROCK=...        # a Bedrock API key, or:
+# export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... [AWS_SESSION_TOKEN=...]
+# With an AWS profile or SSO: eval "$(aws configure export-credentials --format env)"
+
+npx modelshift run --from bedrock:anthropic.claude-3-5-sonnet-20240620-v1:0 \
+  --to bedrock:eu.anthropic.claude-sonnet-4-5-20250929-v1:0 --samples samples.jsonl
+```
+
+- `scan --live` reads Bedrock's model list in your region and flags models Bedrock has marked **LEGACY** (its deprecation status). Inference profiles such as `us.` or `global.` are checked against their base model.
+- `--embed bedrock:amazon.titan-embed-text-v2:0` or `bedrock:cohere.embed-english-v3` for the meaning check.
+- Converse has no JSON mode, so `json` samples rely on the prompt's own instructions on Bedrock.
+- The credentials need `bedrock:InvokeModel` (and `bedrock:ListFoundationModels` for `scan --live`).
 
 ### Already using Promptfoo?
 
@@ -215,7 +235,6 @@ The Claude Code skill in [`skills/modelshift/SKILL.md`](skills/modelshift/SKILL.
 - Prompt adaptation hints for the new model
 - More log importers (LangSmith, OpenTelemetry GenAI spans)
 - Multi-turn conversations and tool-call order/argument checks
-- AWS Bedrock adapter
 
 ## Contributing to the calendar
 

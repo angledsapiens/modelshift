@@ -4,6 +4,8 @@
  * Keys come from the environment and are only sent to their own provider.
  */
 
+import { bedrockAuth, type AwsAuth } from "./aws.js";
+
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
@@ -61,7 +63,7 @@ const OPENAI_COMPATIBLE: Record<string, { base: string; keyEnv: string[] }> = {
   mistral: { base: "https://api.mistral.ai/v1", keyEnv: ["MISTRAL_API_KEY"] },
 };
 
-export const SUPPORTED_PROVIDERS = [...Object.keys(OPENAI_COMPATIBLE), "anthropic", "google", "azure"];
+export const SUPPORTED_PROVIDERS = [...Object.keys(OPENAI_COMPATIBLE), "anthropic", "google", "azure", "bedrock"];
 
 export function parseSpec(spec: string): { provider: string; model: string } {
   const i = spec.indexOf(":");
@@ -212,6 +214,56 @@ function gemini(model: string, key: string, fetchFn: FetchFn, timeoutMs: number)
   };
 }
 
+/**
+ * AWS Bedrock through the Converse API, which works the same for every chat model on
+ * Bedrock (Claude, Llama, Nova, Mistral, Cohere, DeepSeek...). The model is a Bedrock
+ * model id, inference profile id or ARN: bedrock:anthropic.claude-sonnet-4-20250514-v1:0,
+ * bedrock:us.meta.llama3-3-70b-instruct-v1:0.
+ */
+function bedrock(model: string, auth: AwsAuth, fetchFn: FetchFn, timeoutMs: number): ChatProvider {
+  const url = `https://bedrock-runtime.${auth.region}.amazonaws.com/model/${encodeURIComponent(model)}/converse`;
+  return {
+    spec: `bedrock:${model}`,
+    provider: "bedrock",
+    model,
+    async chat(req) {
+      const system = req.messages.filter((m) => m.role === "system").map((m) => ({ text: m.content }));
+      // Converse needs alternating user/assistant turns starting with the user: merge neighbours.
+      const messages: { role: "user" | "assistant"; content: { text: string }[] }[] = [];
+      for (const m of req.messages) {
+        if (m.role === "system") continue;
+        const role = m.role === "assistant" ? "assistant" : "user";
+        const text = (m.role === "tool" ? `[tool result] ${m.content}` : m.content) || " ";
+        const last = messages.at(-1);
+        if (last?.role === role) last.content.push({ text });
+        else messages.push({ role, content: [{ text }] });
+      }
+      if (messages[0]?.role === "assistant") messages.unshift({ role: "user", content: [{ text: " " }] });
+      const body: Record<string, unknown> = { messages };
+      if (system.length) body.system = system;
+      const inferenceConfig: Record<string, unknown> = {};
+      if (req.temperature !== undefined) inferenceConfig.temperature = req.temperature;
+      if (req.max_tokens !== undefined) inferenceConfig.maxTokens = req.max_tokens;
+      if (Object.keys(inferenceConfig).length) body.inferenceConfig = inferenceConfig;
+      if (req.tools?.length)
+        body.toolConfig = { tools: req.tools.map((t) => ({ toolSpec: { name: t.function.name, description: t.function.description || t.function.name, inputSchema: { json: t.function.parameters ?? { type: "object", properties: {} } } } })) };
+      // Converse has no JSON mode; the prompt's own instructions decide the format.
+      const payload = JSON.stringify(body);
+      const r = await postJson(fetchFn, url, auth.headers("POST", url, payload), body, timeoutMs);
+      if (r.error) return { text: "", toolCalls: [], latencyMs: r.latencyMs, error: r.error };
+      const blocks: any[] = r.json?.output?.message?.content ?? [];
+      return {
+        text: blocks.filter((b) => typeof b.text === "string").map((b) => b.text).join(""),
+        toolCalls: blocks.filter((b) => b.toolUse).map((b) => ({ name: b.toolUse.name, arguments: JSON.stringify(b.toolUse.input ?? {}) })),
+        inputTokens: r.json?.usage?.inputTokens,
+        outputTokens: r.json?.usage?.outputTokens,
+        latencyMs: r.latencyMs,
+        finishReason: r.json?.stopReason,
+      };
+    },
+  };
+}
+
 /* ------------------------------------------------------------------ embeddings */
 
 export interface Embedder {
@@ -224,7 +276,8 @@ const EMBED_CLIP = 8000; // characters per text, to stay under embedding models'
 
 /**
  * Embedding models, addressed like chat models: openai:text-embedding-3-small,
- * deepinfra:BAAI/bge-m3, google:gemini-embedding-001, mistral:mistral-embed, azure:<deployment>.
+ * deepinfra:BAAI/bge-m3, google:gemini-embedding-001, mistral:mistral-embed, azure:<deployment>,
+ * bedrock:amazon.titan-embed-text-v2:0, bedrock:cohere.embed-english-v3.
  */
 export function createEmbedder(spec: string, opts: { env?: NodeJS.ProcessEnv; fetchFn?: FetchFn; timeoutMs?: number } = {}): Embedder {
   const env = opts.env ?? process.env;
@@ -233,6 +286,39 @@ export function createEmbedder(spec: string, opts: { env?: NodeJS.ProcessEnv; fe
   const { provider, model } = parseSpec(spec);
   const clip = (t: string) => (t.length > EMBED_CLIP ? t.slice(0, EMBED_CLIP) : t) || " ";
   if (provider === "anthropic") throw new Error("Anthropic has no embeddings API; use e.g. --embed openai:text-embedding-3-small or deepinfra:BAAI/bge-m3");
+  if (provider === "bedrock") {
+    const auth = bedrockAuth(env);
+    const url = `https://bedrock-runtime.${auth.region}.amazonaws.com/model/${encodeURIComponent(model)}/invoke`;
+    const call = async (body: unknown) => {
+      const payload = JSON.stringify(body);
+      return postJson(fetchFn, url, auth.headers("POST", url, payload), body, timeoutMs);
+    };
+    return {
+      spec: `bedrock:${model}`,
+      async embed(texts) {
+        if (/^(\w+\.)?cohere\.embed/.test(model)) {
+          // Cohere Embed takes up to 96 texts per call.
+          const vectors: number[][] = [];
+          for (let i = 0; i < texts.length; i += 96) {
+            const r = await call({ texts: texts.slice(i, i + 96).map((t) => clip(t).slice(0, 2048)), input_type: "search_document" });
+            if (r.error) return { error: r.error };
+            const e = r.json?.embeddings;
+            vectors.push(...(Array.isArray(e) ? e : (e?.float ?? [])));
+          }
+          return vectors.length === texts.length ? { vectors } : { error: "embedding response had the wrong number of vectors" };
+        }
+        // Titan Text Embeddings: one text per call.
+        const vectors: number[][] = [];
+        for (const t of texts) {
+          const r = await call({ inputText: clip(t) });
+          if (r.error) return { error: r.error };
+          if (!Array.isArray(r.json?.embedding)) return { error: `unexpected embedding response from ${model} (use amazon.titan-embed-text-v2:0 or cohere.embed-*)` };
+          vectors.push(r.json.embedding);
+        }
+        return { vectors };
+      },
+    };
+  }
   if (provider === "google") {
     const key = keyFrom(env, ["GEMINI_API_KEY", "GOOGLE_API_KEY"], provider);
     const name = model.replace(/^models\//, "");
@@ -278,6 +364,7 @@ export function createProvider(spec: string, opts: { env?: NodeJS.ProcessEnv; fe
   const { provider, model } = parseSpec(spec);
   if (provider === "anthropic") return anthropic(model, keyFrom(env, ["ANTHROPIC_API_KEY"], provider), fetchFn, timeoutMs);
   if (provider === "google") return gemini(model, keyFrom(env, ["GEMINI_API_KEY", "GOOGLE_API_KEY"], provider), fetchFn, timeoutMs);
+  if (provider === "bedrock") return bedrock(model, bedrockAuth(env), fetchFn, timeoutMs);
   if (provider === "azure") {
     // azure:<deployment> with AZURE_OPENAI_ENDPOINT (https://<resource>.openai.azure.com) and AZURE_OPENAI_API_VERSION
     const endpoint = env.AZURE_OPENAI_ENDPOINT;

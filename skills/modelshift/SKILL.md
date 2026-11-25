@@ -14,7 +14,8 @@ npx modelshift scan                 # retirement calendar only, no keys needed
 npx modelshift scan --live --probe  # also ask hosts what they actually serve under each name
 ```
 
-- `--live` reads each provider's model list with keys from the environment (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, DEEPINFRA_API_KEY, ...). DeepInfra and OpenRouter work without a key.
+- `--live` reads each provider's model list with keys from the environment (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, DEEPINFRA_API_KEY, ...). DeepInfra and OpenRouter work without a key. For Bedrock, set AWS_REGION and either AWS_BEARER_TOKEN_BEDROCK or AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY; LEGACY models are flagged.
+- Bedrock models are `bedrock:<model id or inference profile>`, e.g. `bedrock:us.anthropic.claude-sonnet-4-5-20250929-v1:0`.
 - `--probe` sends one 1-token request per model that is missing from a host's list. It costs a fraction of a cent, but say so before running it.
 - **SILENTLY REDIRECTED** means the host answers that model name with a different model. Nothing errors, but behaviour has changed. Treat it as urgent as a removal: the code, docs and evals describe a model that is no longer running.
 - **CHECK ALIAS** means an undated alias (e.g. `gpt-4o`) whose dated snapshots are retiring.

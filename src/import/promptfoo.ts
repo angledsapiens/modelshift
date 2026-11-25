@@ -430,6 +430,11 @@ export function mapProvider(id: string): string | undefined {
     case "openrouter":
     case "deepinfra":
       return `${p}:${rest(1)}`;
+    case "bedrock":
+      // bedrock:<model>, bedrock:converse:<model>, bedrock:mantle:<model>... (all replayed through Converse).
+      // Agents, knowledge bases, image/video and embedding providers aren't chat models.
+      if (["agents", "agent", "kb", "knowledge-base", "image", "video", "embeddings", "embedding", "nova-sonic"].includes(parts[1])) return undefined;
+      return `bedrock:${["converse", "completion", "chat", "invoke", "responses", "mantle"].includes(parts[1]) ? rest(2) : rest(1)}`;
     case "togetherai":
     case "together":
       return `together:${parts[1] === "chat" ? rest(2) : rest(1)}`;
@@ -503,6 +508,8 @@ export function importPromptfoo(configPath: string): PromptfooImport {
     throw new Error(`no prompts that modelshift can replay${why}`);
   }
   const providers = loadProviders(cfg, base, warn).map((x) => ({ promptfoo: x.id, spec: mapProvider(x.id), config: x.config }));
+  const regions = [...new Set(providers.filter((p) => p.spec?.startsWith("bedrock:") && typeof p.config?.region === "string").map((p) => p.config.region as string))];
+  if (regions.length) warn(`Bedrock providers use region ${regions.join(", ")}: set AWS_REGION=${regions[0]} before modelshift run${regions.length > 1 ? " (one region per run)" : ""}`);
 
   // Shared generation settings: only when every provider agrees (otherwise leave them to the run).
   const shared = (key: string): number | undefined => {

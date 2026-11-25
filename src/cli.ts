@@ -21,7 +21,8 @@ scan options:
   --live                 Also query providers' live model lists (catches silent removals, e.g. DeepInfra).
                          Uses OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY,
                          DEEPINFRA_API_KEY, TOGETHER_API_KEY, FIREWORKS_API_KEY, GROQ_API_KEY,
-                         OPENROUTER_API_KEY when set. Keys are only sent to their own provider.
+                         OPENROUTER_API_KEY and AWS credentials (Bedrock) when set. Keys are only sent
+                         to their own provider.
   --probe                With --live: send one 1-token request per unlisted model to see if it fails (404)
                          or is SILENTLY REDIRECTED to a different model (e.g. DeepInfra swaps retired models).
   --providers a,b        Limit live checks (${PROVIDERS.map((p) => p.name).join(", ")}).

@@ -40,7 +40,7 @@ const PATTERNS: Pattern[] = [
   // Fireworks account paths
   { family: "open-weight", re: /(accounts\/[\w\-]+\/models\/[\w.\-]+)/g },
   // AWS Bedrock ids (vendor.model-family...), e.g. anthropic.claude-3-5-sonnet-20240620-v1:0, meta.llama3-70b-instruct-v1:0
-  { family: "bedrock", re: /\b((?:us\.|eu\.|apac\.)?(?:anthropic\.claude|meta\.llama|amazon\.(?:titan|nova)|mistral\.(?:mistral|mixtral|pixtral)|cohere\.(?:command|embed)|ai21\.(?:jamba|j2)|deepseek\.(?:r1|v3))[\w.\-]*(?::\d+)?)/g },
+  { family: "bedrock", re: /\b((?:(?:us|eu|apac|global|jp|au|ca|us-gov)\.)?(?:anthropic\.claude|meta\.llama|amazon\.(?:titan|nova)|mistral\.(?:mistral|mixtral|pixtral|magistral)|cohere\.(?:command|embed)|ai21\.(?:jamba|j2)|deepseek\.(?:r1|v3)|openai\.gpt-oss|qwen\.qwen|writer\.palmyra|xai\.grok|zai\.glm|moonshot(?:ai)?\.kimi|nvidia\.nemotron|google\.gemma|minimax\.minimax)[\w.\-]*(?::\d+)?)/g },
   { family: "openai", re: /(?:^|[^\w\-])((?:ft:)?(?:gpt-[0-9][\w.\-]*|chatgpt-[\w.\-]+|gpt-image-[\w.\-]+|gpt-realtime[\w.\-]*|gpt-audio[\w.\-]*|text-embedding-[\w.\-]+|tts-1(?:-hd)?|whisper-1|dall-e-[23]|davinci-002|babbage-002|computer-use-preview[\w.\-]*|sora-2[\w.\-]*)(?::[\w.\-:]*)?)/g },
   { family: "openai", re: /^(o[1-9](?:-(?:mini|pro|preview|deep-research))*(?:-\d{4}-\d{2}-\d{2})?)$/g, whole: true },
   { family: "anthropic", re: /(?:^|[^\w\-.])(claude-[a-z0-9][\w.\-]*)/g },
