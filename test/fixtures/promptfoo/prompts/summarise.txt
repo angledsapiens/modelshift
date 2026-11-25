@@ -1,0 +1,3 @@
+Summarise in one line: {{ text | trim }}
+---
+Summarise as JSON {"summary": "..."}: {{text}}

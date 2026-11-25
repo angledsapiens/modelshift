@@ -2,6 +2,7 @@ import type { ChatProvider, Message } from "../providers/index.js";
 import type { Sample } from "../capture.js";
 import type { SampleRun } from "./index.js";
 import { outputRepr } from "./checks.js";
+import type { ResponseCache } from "./cache.js";
 
 /**
  * Optional LLM judge for open-ended answers, where regexes and JSON checks can't tell
@@ -62,13 +63,14 @@ export async function judgeRuns(
   samples: Sample[],
   runs: SampleRun[],
   judge: ChatProvider,
-  opts: { concurrency?: number; onProgress?: (done: number, total: number) => void; pool: <T>(tasks: (() => Promise<T>)[], c: number) => Promise<T[]> },
+  opts: { concurrency?: number; onProgress?: (done: number, total: number) => void; pool: <T>(tasks: (() => Promise<T>)[], c: number) => Promise<T[]>; cache?: ResponseCache },
 ): Promise<void> {
   const byId = new Map(samples.map((s) => [s.id, s]));
   const tasks: (() => Promise<void>)[] = [];
   let done = 0;
   const ask = async (sample: Sample, ref: string, ans: string): Promise<number | null> => {
-    const r = await judge.chat({ messages: judgeMessages(sample, ref, ans), temperature: 0, max_tokens: 16 });
+    const req = { messages: judgeMessages(sample, ref, ans), temperature: 0, max_tokens: 16 };
+    const r = opts.cache ? await opts.cache.chat(judge, req, 0) : await judge.chat(req);
     opts.onProgress?.(++done, tasks.length);
     if (r.error) return null;
     return parseJudgeVerdict(r.text) ?? null;

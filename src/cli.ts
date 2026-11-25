@@ -4,7 +4,7 @@ import { toMarkdown, toText } from "./format.js";
 import { captureFromText, samplesToJsonl } from "./capture.js";
 import { SUPPORTED_PROVIDERS } from "./providers/index.js";
 import { compareCandidatesText, runMarkdown, runSummaryText } from "./run/summary.js";
-import { CONFIRM_ABOVE_CALLS, FAIL_LEVELS, loadResults, reportCore, runCore, scanCore, scanJson, SpendGuardError, UsageError, VERSION } from "./core.js";
+import { CONFIRM_ABOVE_CALLS, FAIL_LEVELS, importCore, loadResults, reportCore, runCore, scanCore, scanJson, SpendGuardError, UsageError, VERSION } from "./core.js";
 import { serveMcp } from "./mcp.js";
 
 const HELP = `modelshift ${VERSION} — know what breaks before your LLM is switched off
@@ -12,6 +12,7 @@ const HELP = `modelshift ${VERSION} — know what breaks before your LLM is swit
 Usage:
   modelshift scan [path] [options]        Find model ids in a repo and check retirements
   modelshift capture <logs> [options]     Turn logged requests (JSONL/JSON) into a replayable test set
+  modelshift import promptfoo [config]    Turn a Promptfoo config's prompts × tests into a test set
   modelshift run --from <p:m> --to <p:m>  Replay the test set on old vs new model and compare
   modelshift report <results.json...>     Turn run results into a shareable single-file HTML report
   modelshift mcp                          Start an MCP server (stdio) so agents can scan and test migrations
@@ -35,6 +36,12 @@ capture options:
   --limit <n>            Keep n samples spread evenly across the log (default: 50)
   --no-redact            Keep text as-is (default redacts emails, keys, card/phone/IBAN/NI numbers)
 
+import options:
+  -o, --out <file>       Output samples file (default: modelshift-samples.jsonl)
+                         Deterministic assertions (equals, contains, icontains, regex, starts-with,
+                         contains-any/all, is-json, contains-json, and not- forms) become expected-output
+                         rules. Model-graded and code assertions are listed as not translated.
+
 run options:
   --from <provider:model>   Current model, e.g. openai:gpt-4o-2024-08-06, deepinfra:google/gemma-3-27b-it
   --to <provider:model>     Replacement(s), comma-separated to compare several, e.g. openai:gpt-6-luna,anthropic:claude-sonnet-5-5
@@ -49,9 +56,14 @@ run options:
   --judge <provider:model>  Also ask an LLM judge whether each answer is an acceptable substitute for the
                             baseline's (for open-ended outputs). Calibrated against the baseline's agreement
                             with itself, so use --repeats 2 or more.
+  --embed <provider:model>  Also compare meaning with an embedding model, e.g. openai:text-embedding-3-small or
+                            deepinfra:BAAI/bge-m3. Cheaper than --judge; a review signal, never "unsafe" alone.
   -o, --out <file>          Results JSON (default: modelshift-results.json)
   --html <file>             Also write the HTML report
   --markdown                Print a markdown summary (for PR comments / CI step summaries)
+  --no-cache                Always call the models (default: reuse responses cached in .modelshift/cache, so
+                            re-runs and extra candidates don't pay twice; failed calls are never cached)
+  --cache-dir <dir>         Cache folder (default .modelshift/cache)
   --yes                     Skip the confirmation required above ${CONFIRM_ABOVE_CALLS} API calls
   --fail-on-unsafe          Exit 1 when the verdict is "unsafe" (for CI)
 
@@ -63,7 +75,7 @@ report options:
   -h, --help             Show help.  -v, --version  Show version.
 `;
 
-const BOOL_FLAGS = new Set(["--live", "--probe", "--json", "--markdown", "--include-markdown", "--no-redact", "--yes", "--fail-on-unsafe", "-h", "--help", "-v", "--version"]);
+const BOOL_FLAGS = new Set(["--live", "--probe", "--json", "--markdown", "--include-markdown", "--no-redact", "--yes", "--no-cache", "--fail-on-unsafe", "-h", "--help", "-v", "--version"]);
 
 export interface Args {
   cmd?: string;
@@ -162,12 +174,15 @@ async function cmdRun(args: Args): Promise<number> {
         temperature: args.opts["--temperature"] !== undefined ? Number(args.opts["--temperature"]) : undefined,
         prices: args.opts["--prices"],
         judge: args.opts["--judge"],
+        embed: args.opts["--embed"],
         out: args.opts["--out"],
         html: args.opts["--html"],
         yes: args.flags.has("--yes"),
+        cache: args.flags.has("--no-cache") ? false : args.opts["--cache-dir"],
       },
       {
         onPlan: (p) => log(p.text),
+        onWarning: (m) => err(`warning: ${m}`),
         onProgress: (spec, d, t) => {
           if (process.stderr.isTTY) process.stderr.write(`\r  ${spec}: ${d}/${t} calls${d === t ? "\n" : ""}`);
         },
@@ -185,6 +200,16 @@ async function cmdRun(args: Args): Promise<number> {
     }
     throw e;
   }
+}
+
+function cmdImport(args: Args): number {
+  const [from, config] = args.positional;
+  if (!from) {
+    err(`Usage: modelshift import promptfoo [promptfooconfig.yaml] [-o samples.jsonl]`);
+    return 1;
+  }
+  process.stdout.write(importCore(from, config, args.opts["--out"]).text + "\n");
+  return 0;
 }
 
 function cmdReport(args: Args): number {
@@ -216,6 +241,8 @@ async function dispatch(args: Args): Promise<number> {
       return cmdScan(args);
     case "capture":
       return cmdCapture(args);
+    case "import":
+      return cmdImport(args);
     case "run":
       return cmdRun(args);
     case "report":

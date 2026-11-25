@@ -1,4 +1,5 @@
 import type { ChatResponse } from "../providers/index.js";
+import type { Expect } from "../capture.js";
 
 /** Strip ```json fences that many models add around JSON. */
 export function extractJson(text: string): unknown | undefined {
@@ -75,8 +76,32 @@ export function mode<T>(xs: T[]): T | undefined {
   return best;
 }
 
-export function assertionsPass(text: string, expect?: { match?: string[]; notMatch?: string[] }): boolean | undefined {
-  if (!expect || (!expect.match?.length && !expect.notMatch?.length)) return undefined;
-  const ok = (expect.match ?? []).every((p) => new RegExp(p, "i").test(text)) && !(expect.notMatch ?? []).some((p) => new RegExp(p, "i").test(text));
-  return ok;
+export function hasAssertions(expect?: Expect): boolean {
+  return !!(expect && (expect.match?.length || expect.notMatch?.length || expect.json || expect.containsJson));
+}
+
+/** "/pattern/flags" sets flags explicitly; a bare pattern is case-insensitive. */
+export function toRegExp(p: string): RegExp {
+  const m = /^\/([\s\S]*)\/([dgimsuvy]*)$/.exec(p);
+  return m && m[1] ? new RegExp(m[1], m[2].replace(/g/g, "")) : new RegExp(p, "i");
+}
+
+/** A JSON object or array anywhere in the text. */
+export function containsJson(text: string): boolean {
+  if (isJson(text)) return true;
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  if (fenced && isJson(fenced[1])) return true;
+  for (const [open, close] of [["{", "}"], ["[", "]"]] as const) {
+    const a = text.indexOf(open);
+    const b = text.lastIndexOf(close);
+    if (a >= 0 && b > a && isJson(text.slice(a, b + 1))) return true;
+  }
+  return false;
+}
+
+export function assertionsPass(text: string, expect?: Expect): boolean | undefined {
+  if (!expect || !hasAssertions(expect)) return undefined;
+  if (expect.json && !isJson(text)) return false;
+  if (expect.containsJson && !containsJson(text)) return false;
+  return (expect.match ?? []).every((p) => toRegExp(p).test(text)) && !(expect.notMatch ?? []).some((p) => toRegExp(p).test(text));
 }

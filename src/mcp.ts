@@ -4,7 +4,7 @@ import { toText } from "./format.js";
 import { captureFromText, samplesToJsonl } from "./capture.js";
 import { loadCalendar } from "./calendar.js";
 import { runMarkdown, runSummaryText } from "./run/summary.js";
-import { CONFIRM_ABOVE_CALLS, reportCore, runCore, scanCore, scanJson, SpendGuardError, UsageError, VERSION } from "./core.js";
+import { CONFIRM_ABOVE_CALLS, importCore, reportCore, runCore, scanCore, scanJson, SpendGuardError, UsageError, VERSION } from "./core.js";
 import type { ProviderName } from "./live/index.js";
 
 /**
@@ -59,6 +59,17 @@ const TOOLS = [
     },
   },
   {
+    name: "import_promptfoo",
+    description: "Turn a Promptfoo config (prompts × tests with assertions) into a modelshift samples file. Deterministic assertions become expected-output rules; model-graded and code assertions are reported as not translated. Free: makes no API calls.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        config: { type: "string", description: "Path to promptfooconfig.yaml (default: look in the current folder)" },
+        out: { type: "string", description: "Output samples file (default modelshift-samples.jsonl)" },
+      },
+    },
+  },
+  {
     name: "run_migration_test",
     description: `Replay a samples file on the current model and on one or more replacement models, and return a verdict (likely-safe / review / unsafe) with confidence. Makes PAID API calls with the user's keys. Above ${CONFIRM_ABOVE_CALLS} calls it returns the plan instead of running: show the plan to the user and only retry with confirm_spend: true after they agree.`,
     inputSchema: {
@@ -70,6 +81,7 @@ const TOOLS = [
         samples: { type: "string", description: "Samples file (default modelshift-samples.jsonl)" },
         repeats: { type: "number", description: "Runs per sample per model (default 3)" },
         judge: { type: "string", description: "Optional provider:model used as an LLM judge for open-ended answers" },
+        embed: { type: "string", description: "Optional embedding model (provider:model, e.g. openai:text-embedding-3-small) for a meaning-based similarity check" },
         out: { type: "string", description: "Results JSON path (default modelshift-results.json)" },
         html: { type: "string", description: "Also write an HTML report to this path" },
         confirm_spend: { type: "boolean", description: "Set only after the user approved the plan's number of paid calls" },
@@ -115,6 +127,8 @@ export async function callTool(name: string, a: Json): Promise<ReturnType<typeof
         writeFileSync(out, samplesToJsonl(samples));
         return text(`Wrote ${samples.length} samples to ${out}${skipped ? ` (${skipped} lines skipped)` : ""}.`);
       }
+      case "import_promptfoo":
+        return text(importCore("promptfoo", a.config as string | undefined, (a.out as string) ?? undefined).text);
       case "run_migration_test": {
         const to = Array.isArray(a.to) ? (a.to as string[]) : String(a.to ?? "").split(",").filter(Boolean);
         const res = await runCore({
@@ -123,6 +137,7 @@ export async function callTool(name: string, a: Json): Promise<ReturnType<typeof
           samples: a.samples as string | undefined,
           repeats: a.repeats as number | undefined,
           judge: a.judge as string | undefined,
+          embed: a.embed as string | undefined,
           out: a.out as string | undefined,
           html: a.html as string | undefined,
           yes: a.confirm_spend === true,

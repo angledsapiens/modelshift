@@ -94,7 +94,7 @@ A real run (24 samples from a production app's language-detection and extraction
 ```
 deepinfra:google/gemma-3-12b-it  →  deepinfra:google/gemma-3-4b-it   (24 samples × 2 repeats)
 Verdict: NOT SAFE TO SWITCH YET  (confidence: medium; never a guarantee)
-  - judge: 100.0% → 78.3% (95% CI of change -39.1% to -4.3%, beyond the baseline's own variation of ±0.0%)
+  - judge: 100.0% → 78.3% (95% CI of change -39.1% to -4.3%, beyond the baseline's own variation of ±0.0%; significant after correcting for 2 checks)
   - behaviour drift: outputs are less similar to the baseline (0.83) than the baseline is to itself (1.00).
 
 Check            baseline  candidate  change (95% CI)           noise   n
@@ -116,16 +116,34 @@ The smaller model looks fine at a glance and is faster, but it drops required JS
 
 **How the comparison stays honest:**
 - Models are random, so the **baseline runs each sample several times** (`--repeats`, default 3). Its run-to-run variation is the **noise floor**.
-- A check is only flagged when the 95% bootstrap confidence interval of the change lies entirely on the worse side **and** the change is bigger than that noise floor.
-- **Checks:** call errors (e.g. a removed model), JSON validity, JSON shape (top-level keys), tool calls, refusals, your own per-sample `expect.match` / `expect.notMatch` regexes, plus a model-free similarity drift (is the new model less like the old one than the old one is to itself?). Latency, output tokens and cost (`--prices`) are reported too.
+- A check is only flagged when the change is statistically significant (paired bootstrap) **and** bigger than that noise floor.
+- **Corrected for running several checks at once.** Testing 6 checks at 95% each would raise a false alarm somewhere far more often than 5% of the time, so p-values are Holm-adjusted across the checks. Checks where too few samples changed to ever be significant don't count toward the correction. A check that is worse on its own but not after correction makes the verdict *review*, with a note to add samples. In 1,000 simulated runs where the new model behaves exactly like the old one, `run` said "not safe" 1.4% of the time (3.3% without the correction); a real 30-point drop is still caught.
+- **Checks:** call errors (e.g. a removed model), JSON validity, JSON shape (top-level keys), tool calls, refusals, your own per-sample `expect` rules (`match` / `notMatch` regexes, case-insensitive unless written `"/Pattern/"`; `json: true`; `containsJson: true`), plus a model-free similarity drift (is the new model less like the old one than the old one is to itself?). Latency, output tokens and cost (`--prices`) are reported too.
 - **Optional LLM judge (`--judge provider:model`)** for open-ended answers. The judge compares each answer with the baseline's first answer and says SAME or DIFFERENT. It also judges the baseline's other repeats against that same answer, so the candidate is only flagged if it differs more often than the old model differs from itself. Use a strong model that is neither the old nor the new one, and `--repeats 2` or more.
+- **Optional meaning check (`--embed provider:model`)**, e.g. `openai:text-embedding-3-small` or `deepinfra:BAAI/bge-m3`: compares the meaning of new answers with old ones using embeddings, against how similar the old model's own answers are to each other. Cheaper and more repeatable than a judge. It flags *review* when the new answers are reliably more than 0.02 less similar, and never makes the verdict *not safe* on its own.
 - **Verdicts:** *likely safe*, *review*, or *not safe yet*, with a confidence level based on sample count. It never says "guaranteed".
 - **Silent swaps:** if a provider serves a different model than the one you named, for the baseline or the candidate, `run` warns you, because you'd be comparing against the wrong model.
 - **Old model already gone?** If every baseline call fails, candidates are judged on their own against each sample's expected output. Give several candidates (`--to a,b,c`) to compare them in one table.
 - **Resilient:** rate limits (429), overloaded responses and 5xx errors are retried with backoff. Only persistent failures count as errors.
+- **Response cache:** successful responses are cached in `.modelshift/cache` (git-ignored automatically), keyed by model, exact request and repeat number. Re-running, re-judging or adding another candidate only pays for new calls, and the old model is called once even with several candidates. `--no-cache` always calls the models.
 - **Spend guard:** `run` prints the number of calls before starting and requires `--yes` above 60 calls.
 
 **Providers for `run`:** `openai`, `anthropic`, `google`, `azure` (deployment name; set `AZURE_OPENAI_ENDPOINT`), `mistral`, `deepinfra`, `together`, `fireworks`, `groq`, `openrouter`.
+
+### Already using Promptfoo?
+
+Reuse your existing tests instead of writing new ones:
+
+```bash
+npx modelshift import promptfoo promptfooconfig.yaml   # -> modelshift-samples.jsonl
+```
+
+Each prompt × test case becomes a sample. That covers text, chat-JSON and `---`-separated prompt files, `vars` (including list values and `file://` text), `defaultTest`, and tests in YAML, JSON, JSONL or CSV.
+
+- **Translated** into expected-output rules: `equals`, `contains`, `icontains`, `starts-with`, `regex`, `contains-any`/`-all` (and the `i` variants), `is-json`, `contains-json`, and their `not-` forms.
+- **Not translated:** model-graded and code assertions (`llm-rubric`, `factuality`, `javascript`, `python`...). They are listed with a suggestion, usually `--judge` or `--embed`.
+
+The command prints the `run` line to use with your config's providers. Nunjucks `{% %}` tags and JS/Python prompt functions aren't evaluated; those prompts are skipped and reported.
 
 **Accepted log formats for `capture`** (JSONL or a JSON array):
 - OpenAI-style `{request, response}` logs
@@ -173,7 +191,7 @@ Every result is also written to the job summary.
 
 ## Use it from coding agents (MCP + Claude Code skill)
 
-`modelshift mcp` is a dependency-free MCP server (stdio) with five tools: `scan_models`, `retirement_calendar`, `capture_samples`, `run_migration_test` and `render_report`.
+`modelshift mcp` is a dependency-free MCP server (stdio) with six tools: `scan_models`, `retirement_calendar`, `capture_samples`, `import_promptfoo`, `run_migration_test` and `render_report`.
 
 ```bash
 claude mcp add modelshift -- npx -y modelshift mcp
@@ -188,6 +206,8 @@ The Claude Code skill in [`skills/modelshift/SKILL.md`](skills/modelshift/SKILL.
 - Hosted retirement alerts across many repos (email or Slack)
 - Prompt adaptation hints for the new model
 - More log importers (LangSmith, OpenTelemetry GenAI spans)
+- Multi-turn conversations and tool-call order/argument checks
+- AWS Bedrock adapter
 
 ## Contributing to the calendar
 

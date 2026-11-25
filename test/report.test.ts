@@ -129,7 +129,7 @@ test("MCP server: initialize, list tools, spend guard, unknown method", async ()
   assert.equal(init.result.protocolVersion, "2025-06-18");
   assert.equal(await handle({ jsonrpc: "2.0", method: "notifications/initialized" }), undefined);
   const list = (await handle({ jsonrpc: "2.0", id: 2, method: "tools/list" })) as any;
-  assert.deepEqual(list.result.tools.map((t: any) => t.name), ["scan_models", "retirement_calendar", "capture_samples", "run_migration_test", "render_report"]);
+  assert.deepEqual(list.result.tools.map((t: any) => t.name), ["scan_models", "retirement_calendar", "capture_samples", "import_promptfoo", "run_migration_test", "render_report"]);
 
   const dir = mkdtempSync(join(tmpdir(), "ms-mcp-"));
   const sfile = join(dir, "s.jsonl");

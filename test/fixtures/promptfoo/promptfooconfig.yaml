@@ -1,0 +1,34 @@
+# A Promptfoo config in the shapes teams commonly use.
+description: Support bot
+prompts:
+  - file://prompts/summarise.txt
+  - file://prompts/chat.json
+  - "Translate to French: {{text}}"
+  - file://prompts/dynamic.js
+providers:
+  - id: openai:chat:gpt-4o-2024-08-06
+    config:
+      temperature: 0
+  - id: anthropic:messages:claude-sonnet-5-5
+    config: { temperature: 0 }
+defaultTest:
+  assert:
+    - type: not-icontains
+      value: as an ai
+tests:
+  - description: Refund question
+    vars:
+      text: I want a refund for order 1234
+    assert:
+      - type: contains
+        value: "1234"
+      - type: llm-rubric
+        value: Polite and offers next steps
+  - vars:
+      text: [Hello there, Good morning]
+    assert:
+      - type: icontains-any
+        value: [bonjour, salut]
+      - type: javascript
+        value: output.length < 200
+  - file://tests.csv

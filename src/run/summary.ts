@@ -33,7 +33,7 @@ export function runSummaryText(r: RunResult): string {
   lines.push("");
   lines.push("Check            baseline  candidate  change (95% CI)           noise   n");
   for (const m of a.metrics) {
-    const flag = (m.regression ? " ✗" : "") + (m.mode === "candidate-only" ? "  (candidate only)" : "");
+    const flag = (m.regression ? (m.severity === "review" ? " ⚠ review" : " ✗") : "") + (m.mode === "candidate-only" ? "  (candidate only)" : "");
     lines.push(
       `${m.name.padEnd(16)} ${pct(m.baseline).padStart(8)}  ${pct(m.candidate).padStart(9)}  ${`${signed(m.delta)} [${pct(m.ci[0])}, ${pct(m.ci[1])}]`.padEnd(26)} ±${pct(m.noiseFloor).padEnd(6)} ${m.samples}${flag}`,
     );
@@ -74,7 +74,7 @@ export function runMarkdown(results: RunResult[]): string {
     lines.push("|---|---:|---:|---|---:|---|");
     for (const m of a.metrics) {
       const ci = m.mode === "paired" ? `${signed(m.delta)} [${pct(m.ci[0])}, ${pct(m.ci[1])}]` : "candidate only";
-      lines.push(`| ${m.name} | ${pct(m.baseline)} | ${pct(m.candidate)} | ${ci} | ${Number.isFinite(m.noiseFloor) ? "±" + pct(m.noiseFloor) : "—"} | ${m.regression ? "❌" : "✅"} |`);
+      lines.push(`| ${m.name} | ${pct(m.baseline)} | ${pct(m.candidate)} | ${ci} | ${Number.isFinite(m.noiseFloor) ? "±" + pct(m.noiseFloor) : "—"} | ${m.regression ? (m.severity === "review" ? "⚠️" : "❌") : "✅"} |`);
     }
     lines.push(`| latency (median) | ${Math.round(a.perf.baselineLatencyMs)}ms | ${Math.round(a.perf.candidateLatencyMs)}ms | | | |`);
     lines.push("");

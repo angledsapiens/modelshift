@@ -49,7 +49,7 @@ function ciBar(m: MetricResult): string {
 function metricRows(r: RunResult): string {
   return r.analysis.metrics
     .map((m) => {
-      const status = m.regression ? (m.mode === "paired" ? `<span class="pill bad">worse</span>` : `<span class="pill warn">below 90%</span>`) : `<span class="pill ok">ok</span>`;
+      const status = m.regression ? (m.mode !== "paired" ? `<span class="pill warn">below 90%</span>` : m.severity === "review" ? `<span class="pill warn">review</span>` : `<span class="pill bad">worse</span>`) : `<span class="pill ok">ok</span>`;
       return `<tr>
   <td><strong>${esc(METRIC_LABEL[m.name] ?? m.name)}</strong><div class="muted small">${esc(m.description)}</div></td>
   <td class="num">${pct(m.baseline)}</td>

@@ -1,8 +1,10 @@
 import type { ChatProvider, ChatResponse } from "../providers/index.js";
 import type { Sample } from "../capture.js";
-import { bootstrapMeanCI, mean, meanPairwiseAbsDiff, median } from "./stats.js";
-import { assertionsPass, isJson, isRefusal, mode, outputRepr, similarity, toolSignature, topLevelKeys } from "./checks.js";
+import { bootstrapMeanCI, bootstrapMeanTest, holmAdjust, mean, meanPairwiseAbsDiff, median, minAttainableP } from "./stats.js";
+import { assertionsPass, hasAssertions, isJson, isRefusal, mode, outputRepr, similarity, toolSignature, topLevelKeys } from "./checks.js";
 import type { JudgeScores } from "./judge.js";
+import { ResponseCache } from "./cache.js";
+import { SEMANTIC_MIN_EFFECT, type SemanticScores } from "./semantic.js";
 
 export interface SampleRun {
   id: string;
@@ -10,6 +12,8 @@ export interface SampleRun {
   candidate: ChatResponse[];
   /** Present when the run was judged by an LLM (--judge). */
   judge?: JudgeScores;
+  /** Present when outputs were embedded (--embed). */
+  semantic?: SemanticScores;
 }
 
 export interface RunMeta {
@@ -20,6 +24,7 @@ export interface RunMeta {
   finishedAt?: string;
   toolVersion: string;
   judge?: string;
+  embed?: string;
 }
 
 export interface MetricResult {
@@ -36,6 +41,15 @@ export interface MetricResult {
   severity: "fail" | "review";
   /** "candidate-only" when the baseline produced no usable output (e.g. the old model was already removed). */
   mode: "paired" | "candidate-only";
+  /** Paired checks only: bootstrap p-value for "worse", and after Holm correction across all paired checks in this run. */
+  p?: number;
+  pAdjusted?: number;
+  /** Paired checks only: samples whose value changed between the models (in either direction). */
+  changed?: number;
+  /** Paired checks only: false when the check couldn't reach significance even on its own, so it isn't part of the correction. */
+  inFamily?: boolean;
+  /** Smallest change that matters in practice (on top of the noise floor), for continuous scores. */
+  minEffect?: number;
 }
 
 export interface Analysis {
@@ -76,7 +90,7 @@ export async function executeRun(
   samples: Sample[],
   baseline: ChatProvider,
   candidate: ChatProvider,
-  opts: { repeats?: number; concurrency?: number; temperature?: number; onProgress?: (done: number, total: number) => void; toolVersion?: string },
+  opts: { repeats?: number; concurrency?: number; temperature?: number; onProgress?: (done: number, total: number) => void; toolVersion?: string; cache?: ResponseCache },
 ): Promise<{ meta: RunMeta; runs: SampleRun[] }> {
   const repeats = Math.max(1, opts.repeats ?? 3);
   const meta: RunMeta = { baseline: baseline.spec, candidate: candidate.spec, repeats, startedAt: new Date().toISOString(), toolVersion: opts.toolVersion ?? "dev" };
@@ -88,8 +102,9 @@ export async function executeRun(
     for (const [which, provider] of [["baseline", baseline], ["candidate", candidate]] as const) {
       for (let r = 0; r < repeats; r++) {
         tasks.push(async () => {
-          const res = await provider.chat({ messages: s.messages, tools: s.tools, temperature: opts.temperature ?? s.temperature, max_tokens: s.max_tokens, json: s.json });
-          runs[i][which].push(res);
+          const req = sampleRequest(s, opts.temperature);
+          const res = opts.cache ? await opts.cache.chat(provider, req, r) : await provider.chat(req);
+          runs[i][which][r] = res; // by slot, so repeat order is stable across runs and the cache
           opts.onProgress?.(++done, total);
         });
       }
@@ -98,6 +113,23 @@ export async function executeRun(
   await pool(tasks, opts.concurrency ?? 4);
   meta.finishedAt = new Date().toISOString();
   return { meta, runs };
+}
+
+export function sampleRequest(s: Sample, temperature?: number) {
+  return { messages: s.messages, tools: s.tools, temperature: temperature ?? s.temperature, max_tokens: s.max_tokens, json: s.json };
+}
+
+/** Calls a run still has to make: unique (model, sample, repeat) slots that aren't cached yet. */
+export function uncachedCalls(samples: Sample[], specs: string[], repeats: number, cache?: ResponseCache, temperature?: number): number {
+  const seen = new Set<string>();
+  let n = 0;
+  for (const spec of specs) for (const s of samples) for (let r = 0; r < repeats; r++) {
+    const k = ResponseCache.key(spec, sampleRequest(s, temperature), r);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    if (!cache?.has(k)) n++;
+  }
+  return n;
 }
 
 /* ------------------------------------------------------------------ analysis */
@@ -159,9 +191,9 @@ const METRICS: MetricDef[] = [
   },
   {
     name: "assertions",
-    description: "Passes the sample's own expect.match / expect.notMatch rules.",
+    description: "Passes the sample's own expected-output rules (expect.match / notMatch / json).",
     direction: "higher-is-better",
-    applies: (s) => !!(s.expect?.match?.length || s.expect?.notMatch?.length),
+    applies: (s) => hasAssertions(s.expect),
     value: (r, { sample }) => {
       const v = assertionsPass(outputRepr(r), sample.expect);
       return v === undefined ? undefined : v ? 1 : 0;
@@ -231,15 +263,16 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
       continue;
     }
     const delta = mean(deltas);
-    const ci = bootstrapMeanCI(deltas);
+    const { ci, p } = bootstrapMeanTest(deltas, def.direction === "higher-is-better" ? "negative" : "positive");
     const noiseFloor = mean(noises);
-    const worseSide = def.direction === "higher-is-better" ? ci[1] < 0 : ci[0] > 0;
-    const regression = worseSide && Math.abs(delta) > noiseFloor;
-    metrics.push({ name: def.name, description: def.description, direction: def.direction, samples: deltas.length, baseline: mean(bases), candidate: mean(cands), delta, ci, noiseFloor, regression, severity: "fail", mode: "paired" });
+    metrics.push({ name: def.name, description: def.description, direction: def.direction, samples: deltas.length, baseline: mean(bases), candidate: mean(cands), delta, ci, noiseFloor, regression: false, severity: "fail", mode: "paired", p, changed: deltas.filter((d) => d !== 0).length });
   }
 
   const judgeMetric = judgeMetricOf(runs, examples);
   if (judgeMetric) metrics.push(judgeMetric);
+  const semanticMetric = semanticMetricOf(runs);
+  if (semanticMetric) metrics.push(semanticMetric);
+  const family = correctForMultipleChecks(metrics);
 
   // Behaviour drift: is the candidate less similar to the baseline than the baseline is to itself?
   const drifts: number[] = [];
@@ -297,8 +330,12 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
     const firstErr = baselineCalls[0].error ?? "";
     reasons.push(`baseline unavailable: all ${baselineCalls.length} baseline calls failed (${firstErr.slice(0, 120)}). The old model may already be removed; results below judge the candidate on its own against your expected outputs.`);
   }
-  const fails = metrics.filter((m) => m.regression && m.mode === "paired");
-  for (const m of fails) reasons.push(`${m.name}: ${pct(m.baseline)} → ${pct(m.candidate)} (95% CI of change ${pct(m.ci[0])} to ${pct(m.ci[1])}, beyond the baseline's own variation of ±${pct(m.noiseFloor)})`);
+  const fails = metrics.filter((m) => m.regression && m.mode === "paired" && m.severity === "fail");
+  const corrected = family > 1 ? `; significant after correcting for ${family} checks` : "";
+  for (const m of fails) reasons.push(`${m.name}: ${pct(m.baseline)} → ${pct(m.candidate)} (95% CI of change ${pct(m.ci[0])} to ${pct(m.ci[1])}, beyond the baseline's own variation of ±${pct(m.noiseFloor)}${corrected})`);
+  const near = nearMisses(metrics);
+  for (const m of near) reasons.push(`${m.name}: ${pct(m.baseline)} → ${pct(m.candidate)} (95% CI of change ${pct(m.ci[0])} to ${pct(m.ci[1])}) is worse on its own, but not after correcting for ${family} checks. Add samples to confirm.`);
+  for (const m of metrics.filter((x) => x.regression && x.mode === "paired" && x.severity === "review")) reasons.push(`${m.name}: ${m.baseline.toFixed(2)} → ${m.candidate.toFixed(2)} (95% CI of change ${m.ci[0].toFixed(3)} to ${m.ci[1].toFixed(3)}). Review examples.`);
   for (const m of metrics.filter((x) => x.regression && x.mode === "candidate-only")) reasons.push(`${m.name}: candidate scores ${pct(m.candidate)} on its own (95% CI ${pct(m.ci[0])}–${pct(m.ci[1])}); no baseline to compare.`);
   if (drift.changed) reasons.push(`behaviour drift: outputs are less similar to the baseline (${drift.crossSimilarity.toFixed(2)}) than the baseline is to itself (${drift.baselineSelfSimilarity.toFixed(2)}). Review examples.`);
   if (perf.baselineLatencyMs && perf.candidateLatencyMs > perf.baselineLatencyMs * 2) reasons.push(`latency: median ${Math.round(perf.baselineLatencyMs)}ms → ${Math.round(perf.candidateLatencyMs)}ms`);
@@ -306,8 +343,8 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
   //  - unsafe:      a paired check regressed beyond the noise floor
   //  - review:      candidate-only checks fell short, behaviour drifted, or latency doubled
   //  - likely-safe: none of the above
-  const candOnlyFails = metrics.some((m) => m.regression && m.mode === "candidate-only");
-  const softIssues = candOnlyFails || drift.changed || reasons.some((x) => x.includes(" redirected: ")) || (perf.baselineLatencyMs > 0 && perf.candidateLatencyMs > perf.baselineLatencyMs * 2);
+  const candOnlyFails = metrics.some((m) => m.regression && (m.mode === "candidate-only" || m.severity === "review"));
+  const softIssues = candOnlyFails || near.length > 0 || drift.changed || reasons.some((x) => x.includes(" redirected: ")) || (perf.baselineLatencyMs > 0 && perf.candidateLatencyMs > perf.baselineLatencyMs * 2);
   const verdict: Analysis["verdict"] = fails.length ? "unsafe" : softIssues ? "review" : "likely-safe";
   const n = runs.length;
   let confidence: Analysis["confidence"] = n < 20 ? "low" : n < 50 ? "medium" : "high";
@@ -315,6 +352,61 @@ export function analyze(samples: Sample[], runs: SampleRun[], opts: { prices?: P
   if (!reasons.length) reasons.push("No regression beyond the baseline's own run-to-run variation was detected.");
 
   return { metrics, drift, perf, verdict, confidence, reasons, examples };
+}
+
+/**
+ * Several checks run on the same comparison, so a 95% test on each would raise a false alarm
+ * somewhere more than 5% of the time. Holm-adjust the paired checks' p-values together, then
+ * flag a check only if it is significant after adjustment AND bigger than the noise floor.
+ * Checks that couldn't reach p < 0.05 even on their own (too few samples changed) can never
+ * alarm, so they don't count toward the correction. Returns the family size.
+ */
+function correctForMultipleChecks(metrics: MetricResult[]): number {
+  const paired = metrics.filter((m) => m.mode === "paired" && m.p !== undefined);
+  for (const m of paired) m.inFamily = minAttainableP(m.samples, m.changed ?? m.samples) < 0.05;
+  const family = paired.filter((m) => m.inFamily);
+  const adj = holmAdjust(family.map((m) => m.p!));
+  family.forEach((m, i) => {
+    m.pAdjusted = adj[i];
+    m.regression = adj[i] < 0.05 && Math.abs(m.delta) > m.noiseFloor + (m.minEffect ?? 0);
+  });
+  for (const m of paired) if (!m.inFamily) {
+    m.pAdjusted = 1;
+    m.regression = false;
+  }
+  return family.length;
+}
+
+/** Worse on its own, but not after the correction: worth a look, and more samples. */
+function nearMisses(metrics: MetricResult[]): MetricResult[] {
+  return metrics.filter((m) => m.mode === "paired" && m.severity === "fail" && !m.regression && m.inFamily && (m.p ?? 1) < 0.05 && Math.abs(m.delta) > m.noiseFloor);
+}
+
+/** Meaning-based similarity: new vs old answers, against the old model's similarity to itself. */
+function semanticMetricOf(runs: SampleRun[]): MetricResult | undefined {
+  const scored = runs.filter((r) => r.semantic && r.semantic.self !== null && r.semantic.cross !== null);
+  if (!scored.length) return undefined;
+  const bases = scored.map((r) => r.semantic!.self!);
+  const cands = scored.map((r) => r.semantic!.cross!);
+  const deltas = cands.map((c, i) => c - bases[i]);
+  const { ci, p } = bootstrapMeanTest(deltas, "negative");
+  return {
+    name: "semantic",
+    description: `Meaning-based similarity (${scored[0].semantic!.model} embeddings) of new answers to old ones, against the old model's similarity to itself. A review signal: flagged when reliably more than ${SEMANTIC_MIN_EFFECT} lower.`,
+    direction: "higher-is-better",
+    samples: deltas.length,
+    baseline: mean(bases),
+    candidate: mean(cands),
+    delta: mean(deltas),
+    ci,
+    noiseFloor: 0, // the baseline's self-similarity is already the reference
+    minEffect: SEMANTIC_MIN_EFFECT,
+    regression: false,
+    severity: "review",
+    mode: "paired",
+    p,
+    changed: deltas.filter((d) => d !== 0).length,
+  };
 }
 
 /** LLM-judge agreement: candidate vs first baseline answer, against the baseline's agreement with itself. */
@@ -352,10 +444,9 @@ function judgeMetricOf(runs: SampleRun[], examples: Analysis["examples"]): Metri
   }
   if (deltas.length) {
     const delta = mean(deltas);
-    const ci = bootstrapMeanCI(deltas);
+    const { ci, p } = bootstrapMeanTest(deltas, "negative");
     const noiseFloor = mean(noises);
-    const regression = ci[1] < 0 && Math.abs(delta) > noiseFloor;
-    return { name: "judge", description, direction: "higher-is-better", samples: deltas.length, baseline: mean(bases), candidate: mean(cands), delta, ci, noiseFloor, regression, severity: "fail", mode: "paired" };
+    return { name: "judge", description, direction: "higher-is-better", samples: deltas.length, baseline: mean(bases), candidate: mean(cands), delta, ci, noiseFloor, regression: false, severity: "fail", mode: "paired", p, changed: deltas.filter((d) => d !== 0).length };
   }
   if (candOnly.length) {
     const rate = mean(candOnly);

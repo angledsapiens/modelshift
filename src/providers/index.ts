@@ -212,6 +212,65 @@ function gemini(model: string, key: string, fetchFn: FetchFn, timeoutMs: number)
   };
 }
 
+/* ------------------------------------------------------------------ embeddings */
+
+export interface Embedder {
+  spec: string;
+  /** One vector per input text, or an error for the whole batch. */
+  embed(texts: string[]): Promise<{ vectors?: number[][]; error?: string }>;
+}
+
+const EMBED_CLIP = 8000; // characters per text, to stay under embedding models' input limits
+
+/**
+ * Embedding models, addressed like chat models: openai:text-embedding-3-small,
+ * deepinfra:BAAI/bge-m3, google:gemini-embedding-001, mistral:mistral-embed, azure:<deployment>.
+ */
+export function createEmbedder(spec: string, opts: { env?: NodeJS.ProcessEnv; fetchFn?: FetchFn; timeoutMs?: number } = {}): Embedder {
+  const env = opts.env ?? process.env;
+  const fetchFn = opts.fetchFn ?? (globalThis.fetch as unknown as FetchFn);
+  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const { provider, model } = parseSpec(spec);
+  const clip = (t: string) => (t.length > EMBED_CLIP ? t.slice(0, EMBED_CLIP) : t) || " ";
+  if (provider === "anthropic") throw new Error("Anthropic has no embeddings API; use e.g. --embed openai:text-embedding-3-small or deepinfra:BAAI/bge-m3");
+  if (provider === "google") {
+    const key = keyFrom(env, ["GEMINI_API_KEY", "GOOGLE_API_KEY"], provider);
+    const name = model.replace(/^models\//, "");
+    return {
+      spec: `google:${name}`,
+      async embed(texts) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(name)}:batchEmbedContents`;
+        const r = await postJson(fetchFn, url, { "x-goog-api-key": key }, { requests: texts.map((t) => ({ model: `models/${name}`, content: { parts: [{ text: clip(t) }] } })) }, timeoutMs);
+        if (r.error) return { error: r.error };
+        const vectors = (r.json?.embeddings ?? []).map((e: any) => e.values as number[]);
+        return vectors.length === texts.length ? { vectors } : { error: "embedding response had the wrong number of vectors" };
+      },
+    };
+  }
+  let url: string;
+  let headers: Record<string, string>;
+  if (provider === "azure") {
+    const endpoint = env.AZURE_OPENAI_ENDPOINT;
+    if (!endpoint) throw new Error("Missing AZURE_OPENAI_ENDPOINT for azure:<deployment>");
+    url = `${endpoint.replace(/\/$/, "")}/openai/deployments/${encodeURIComponent(model)}/embeddings?api-version=${env.AZURE_OPENAI_API_VERSION ?? "2024-10-21"}`;
+    headers = { "api-key": keyFrom(env, ["AZURE_OPENAI_API_KEY"], provider) };
+  } else {
+    const cfg = OPENAI_COMPATIBLE[provider];
+    url = `${cfg.base}/embeddings`;
+    headers = { Authorization: `Bearer ${keyFrom(env, cfg.keyEnv, provider)}` };
+  }
+  return {
+    spec: `${provider}:${model}`,
+    async embed(texts) {
+      const r = await postJson(fetchFn, url, headers, { model, input: texts.map(clip) }, timeoutMs);
+      if (r.error) return { error: r.error };
+      const data: any[] = [...(r.json?.data ?? [])].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+      const vectors = data.map((d) => d.embedding as number[]);
+      return vectors.length === texts.length && vectors.every(Array.isArray) ? { vectors } : { error: "embedding response had the wrong number of vectors" };
+    },
+  };
+}
+
 export function createProvider(spec: string, opts: { env?: NodeJS.ProcessEnv; fetchFn?: FetchFn; timeoutMs?: number } = {}): ChatProvider {
   const env = opts.env ?? process.env;
   const fetchFn = opts.fetchFn ?? (globalThis.fetch as unknown as FetchFn);

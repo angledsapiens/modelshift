@@ -12,8 +12,19 @@ export interface Sample {
   max_tokens?: number;
   json?: boolean;
   reference?: string;
-  /** Per-sample assertions: regexes the output must / must not match. */
-  expect?: { match?: string[]; notMatch?: string[] };
+  /** Per-sample assertions. Patterns are regexes, case-insensitive by default; write "/pattern/flags" to set flags (e.g. "/Total/" is case-sensitive). */
+  expect?: Expect;
+}
+
+export interface Expect {
+  /** Patterns the output must match. */
+  match?: string[];
+  /** Patterns the output must not match. */
+  notMatch?: string[];
+  /** Output must be valid JSON (```json fences allowed). */
+  json?: boolean;
+  /** Output must contain a JSON object or array somewhere. */
+  containsJson?: boolean;
 }
 
 /** Accepted line shapes:

@@ -1,0 +1,3 @@
+text,__expected,__expected2
+"Ship to 10 Downing St, please",regex: \d+,is-json
+plain,exact answer,
