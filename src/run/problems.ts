@@ -12,6 +12,8 @@ export interface Problem {
   title: string;
   /** What it means for the results and what to do about it. */
   detail: string;
+  /** Separate points shown as a list under the detail (e.g. one per required code change). */
+  items?: string[];
 }
 
 /** Above this share of failed calls on either side, the comparison is too incomplete to trust. */
@@ -75,6 +77,20 @@ export function findProblems(
       severity: label === "candidate" && (all || share >= FAILED_CALLS_BLOCKER) ? "blocker" : "warning",
       title: `${failed.length} of ${rs.length} ${label} calls failed`,
       detail: `${name}: ${errors}. ${effect}${hint(errors)}`,
+    });
+  }
+
+  // 1b. Settings a model rejected: modelshift changed the request to test it anyway, and the user's code needs the same change.
+  for (const [label, spec, rs] of sides) {
+    const counts = new Map<string, number>();
+    for (const r of rs) for (const a of r.adjustments ?? []) counts.set(a, (counts.get(a) ?? 0) + 1);
+    if (!counts.size) continue;
+    const name = spec ?? label;
+    out.push({
+      severity: "warning",
+      title: `${counts.size} setting${counts.size > 1 ? "s" : ""} had to change for the ${label} model: your code will need ${counts.size > 1 ? "these changes" : "this change"} too`,
+      detail: `${name} rejected ${counts.size > 1 ? "these settings" : "this setting"}, so modelshift changed the request and tested it anyway. The results show the ${label} with ${counts.size > 1 ? "these changes" : "this change"} applied.`,
+      items: [...counts.entries()].map(([a, n]) => `${a[0].toUpperCase()}${a.slice(1)} (${n} of ${rs.length} calls)`),
     });
   }
 

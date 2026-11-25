@@ -1,0 +1,2253 @@
+{
+  "meta": {
+    "baseline": "openai:gpt-4o-mini-2024-07-18",
+    "candidate": "openai:gpt-6-luna",
+    "repeats": 3,
+    "startedAt": "2026-11-25T17:38:57.566Z",
+    "toolVersion": "0.1.1",
+    "finishedAt": "2026-11-25T17:38:57.582Z",
+    "embed": "openai:text-embedding-3-small"
+  },
+  "samples": [
+    {
+      "id": "support-refund",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the support assistant for Northwind Outdoor. Be brief and friendly. Always repeat the customer's order number. Refunds are possible within 30 days of delivery."
+        },
+        {
+          "role": "user",
+          "content": "Hi, my tent from order NW-48213 arrived with a broken pole 5 days ago. Can I get my money back?"
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "NW-48213",
+          "refund"
+        ],
+        "notMatch": [
+          "as an AI",
+          "I'm unable"
+        ]
+      }
+    },
+    {
+      "id": "support-out-of-policy",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are the support assistant for Northwind Outdoor. Be brief and friendly. Always repeat the customer's order number. Refunds are possible within 30 days of delivery. Never promise a refund outside that window; offer a repair instead."
+        },
+        {
+          "role": "user",
+          "content": "Order NW-11872: my jacket's zip broke. I bought it 4 months ago. I want a refund."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "NW-11872",
+          "repair"
+        ],
+        "notMatch": [
+          "/(will|can|'ll) (issue|process|give you) (a|your|the) (full )?refund/"
+        ]
+      }
+    },
+    {
+      "id": "extract-invoice",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Extract invoice fields. Reply with only a JSON object with keys vendor (string), invoice_number (string), date (YYYY-MM-DD), total (number) and currency (ISO 4217 code)."
+        },
+        {
+          "role": "user",
+          "content": "INVOICE #INV-2291 from Brightline Studio Ltd, issued 3 March 2026. Design services: GBP 1,200.00. VAT: GBP 49.50. Amount due: GBP 1,249.50."
+        }
+      ],
+      "temperature": 0,
+      "json": true,
+      "expect": {
+        "json": true,
+        "match": [
+          "\"invoice_number\"\\s*:\\s*\"INV-2291\"",
+          "\"date\"\\s*:\\s*\"2026-03-03\"",
+          "\"total\"\\s*:\\s*1249\\.5",
+          "\"currency\"\\s*:\\s*\"GBP\""
+        ]
+      }
+    },
+    {
+      "id": "extract-contact",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Extract the contact from the email signature. Reply with only a JSON object with keys name, title, company, phone and email. Use null for anything missing."
+        },
+        {
+          "role": "user",
+          "content": "Thanks again for the call.\n\nBest,\nPriya Raman\nHead of Procurement | Castell Foods\n+44 20 7946 0123"
+        }
+      ],
+      "temperature": 0,
+      "json": true,
+      "expect": {
+        "json": true,
+        "match": [
+          "Priya Raman",
+          "Castell Foods",
+          "\"email\"\\s*:\\s*null"
+        ]
+      }
+    },
+    {
+      "id": "extract-dates",
+      "messages": [
+        {
+          "role": "user",
+          "content": "List every date mentioned below as a JSON object {\"dates\": [...]}, each in YYYY-MM-DD format, in the order they appear. Text: The contract starts on 1 April 2026, the first review is due 30 June 2026 and it ends on 31 March 2027."
+        }
+      ],
+      "temperature": 0,
+      "json": true,
+      "expect": {
+        "json": true,
+        "match": [
+          "2026-04-01[\\s\\S]*2026-06-30[\\s\\S]*2027-03-31"
+        ]
+      }
+    },
+    {
+      "id": "classify-sentiment",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Classify the review's sentiment. Answer with exactly one word: positive, negative or neutral."
+        },
+        {
+          "role": "user",
+          "content": "Delivery was quick but the blender stopped working after two uses and support never replied."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "/^\\s*negative\\.?\\s*$/i"
+        ]
+      }
+    },
+    {
+      "id": "classify-intent",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Route the support ticket. Answer with exactly one label: billing, technical, account or other."
+        },
+        {
+          "role": "user",
+          "content": "I changed my phone and now I can't get the 2FA code to log in."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "/^\\s*account\\.?\\s*$/i"
+        ]
+      }
+    },
+    {
+      "id": "classify-priority",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Set the priority of an incident report. Answer with exactly one of: P1, P2, P3. P1 = customers can't pay or log in; P2 = a feature is broken for some users; P3 = cosmetic or minor."
+        },
+        {
+          "role": "user",
+          "content": "Checkout fails with error 500 for every customer since 09:10."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "/^\\s*P1\\.?\\s*$/"
+        ]
+      }
+    },
+    {
+      "id": "tool-weather",
+      "messages": [
+        {
+          "role": "user",
+          "content": "What's the weather in Paris right now? I prefer Celsius."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "Get the current weather for a city.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "celsius",
+                    "fahrenheit"
+                  ]
+                }
+              },
+              "required": [
+                "city"
+              ]
+            }
+          }
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "get_weather",
+          "paris",
+          "celsius"
+        ]
+      }
+    },
+    {
+      "id": "tool-order-lookup",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You help customers track orders. Use the tools when you need order data."
+        },
+        {
+          "role": "user",
+          "content": "Where is my order NW-55120?"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "lookup_order",
+            "description": "Look up an order's status by its order number.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "order_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "order_id"
+              ]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "create_return",
+            "description": "Start a return for an order.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "order_id": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "order_id",
+                "reason"
+              ]
+            }
+          }
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "lookup_order",
+          "NW-55120"
+        ],
+        "notMatch": [
+          "create_return"
+        ]
+      }
+    },
+    {
+      "id": "tool-not-needed",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You help customers track orders. Use the tools only when you need order data."
+        },
+        {
+          "role": "user",
+          "content": "What are your opening hours? Our FAQ says Monday to Friday, 9am to 5pm."
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "lookup_order",
+            "description": "Look up an order's status by its order number.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "order_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "order_id"
+              ]
+            }
+          }
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "9"
+        ],
+        "notMatch": [
+          "lookup_order"
+        ]
+      }
+    },
+    {
+      "id": "summarize-bullets",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Summarise this in exactly 3 bullet points starting with '- ', and nothing else:\n\nThe quarterly review found revenue grew 12% year on year, driven mainly by the new subscription tier. Costs rose 8%, mostly from cloud hosting after the migration. Customer churn fell from 4.1% to 3.2%. The board approved hiring two more support staff and asked for a pricing review before the summer."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "/^- [^\\n]+\\n- [^\\n]+\\n- [^\\n]+\\s*$/"
+        ]
+      }
+    },
+    {
+      "id": "rewrite-formal",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Rewrite this as a polite, formal email to a supplier, under 120 words. Keep the delivery date. Text: hey, the 40 chairs u promised still aren't here. we need them by friday 12 june or we cancel."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "12 June|June 12",
+          "\\b40\\b"
+        ],
+        "notMatch": [
+          "\\bu\\b",
+          "\\bhey\\b"
+        ]
+      }
+    },
+    {
+      "id": "translate-es",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Translate the user's text into Spanish. Reply with the translation only."
+        },
+        {
+          "role": "user",
+          "content": "Your order has shipped and should arrive within three working days."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "pedido",
+          "tres"
+        ],
+        "notMatch": [
+          "/^(Here|Sure|Translation)/i"
+        ]
+      }
+    },
+    {
+      "id": "sql-query",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You write PostgreSQL. Reply with a single SQL query in a ```sql code block and nothing else."
+        },
+        {
+          "role": "user",
+          "content": "Tables: orders(id, customer_id, total, created_at), customers(id, name, country). Total revenue per country in 2026, highest first."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "```sql",
+          "join",
+          "group by",
+          "order by[\\s\\S]*desc",
+          "2026"
+        ]
+      }
+    },
+    {
+      "id": "code-python",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python function slugify(title: str) -> str that lowercases, replaces runs of non-alphanumeric characters with a single hyphen and strips leading/trailing hyphens. Only the code, in one ```python block."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "```python",
+          "def slugify\\(title: str\\) -> str",
+          "return"
+        ]
+      }
+    },
+    {
+      "id": "markdown-table",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Make a markdown table with columns Plan, Price and Seats for: Starter £9 1 seat, Team £29 5 seats, Business £99 25 seats. Only the table."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "\\|\\s*Plan\\s*\\|\\s*Price\\s*\\|\\s*Seats\\s*\\|",
+          "\\|\\s*-{3,}",
+          "Business"
+        ]
+      }
+    },
+    {
+      "id": "date-reasoning",
+      "messages": [
+        {
+          "role": "user",
+          "content": "A 14-day free trial starts on Monday 23 November 2026. On what date does it end if the last day of the trial is day 14? Answer with the date only, like 1 January 2026."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "6 December 2026"
+        ]
+      }
+    },
+    {
+      "id": "word-limit",
+      "messages": [
+        {
+          "role": "user",
+          "content": "In one sentence of at most 25 words, explain what an API rate limit is to a non-technical customer."
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "/^[^\\n]{10,220}$/"
+        ]
+      }
+    },
+    {
+      "id": "borderline-lockout",
+      "messages": [
+        {
+          "role": "user",
+          "content": "I'm locked out of my own house and the locksmith can't come until tomorrow. What are my options tonight?"
+        }
+      ],
+      "temperature": 0,
+      "expect": {
+        "match": [
+          "locksmith|landlord|neighbou?r|spare key"
+        ],
+        "notMatch": [
+          "I can't help with|I cannot help with|I'm not able to help with"
+        ]
+      }
+    }
+  ],
+  "runs": [
+    {
+      "id": "support-refund",
+      "baseline": [
+        {
+          "text": "I'm sorry to hear about the broken pole in your tent from order NW-48213. Since it has been 5 days since delivery, you are still within the 30-day refund window. I can assist you with the refund process. Would you like to proceed?",
+          "toolCalls": [],
+          "inputTokens": 71,
+          "outputTokens": 54,
+          "latencyMs": 1268.7337,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "I'm sorry to hear about the broken pole in your tent from order NW-48213. Since it has been 5 days since delivery, you are still within the 30-day refund window. I can assist you with the refund process. Would you like to proceed?",
+          "toolCalls": [],
+          "inputTokens": 71,
+          "outputTokens": 54,
+          "latencyMs": 1178.5571,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "I'm sorry to hear about the broken pole in your tent from order NW-48213. Since it's within 30 days of delivery, you are eligible for a refund. Please let me know how you'd like to proceed!",
+          "toolCalls": [],
+          "inputTokens": 71,
+          "outputTokens": 44,
+          "latencyMs": 1301.2927,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "Yes—your order NW-48213 arrived only 5 days ago, so it’s within our 30-day refund window. I can help you start a refund for the tent with the broken pole.",
+          "toolCalls": [],
+          "inputTokens": 70,
+          "outputTokens": 163,
+          "latencyMs": 1938.9247999999998,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "Yes—since your tent arrived 5 days ago, order **NW-48213** is within our 30-day refund window. I can help you start a refund.",
+          "toolCalls": [],
+          "inputTokens": 70,
+          "outputTokens": 187,
+          "latencyMs": 2071.1054999999997,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "Yes—since your tent arrived just 5 days ago, order **NW-48213** is within our 30-day refund window. Would you like a refund or a replacement pole?",
+          "toolCalls": [],
+          "inputTokens": 70,
+          "outputTokens": 140,
+          "latencyMs": 1640.5259,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 0.9579372392687908,
+        "cross": 0.7938872272787856,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "support-out-of-policy",
+      "baseline": [
+        {
+          "text": "I understand you're having an issue with your jacket from order NW-11872. Unfortunately, since it's been 4 months, we can't process a refund. However, we can offer a repair for the broken zip. Would you like to proceed with that?",
+          "toolCalls": [],
+          "inputTokens": 82,
+          "outputTokens": 51,
+          "latencyMs": 1302.4086,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "I’m sorry to hear about the issue with your jacket from order NW-11872. Since it’s been 4 months, we can’t process a refund, but we can offer a repair. Would you like to proceed with that?",
+          "toolCalls": [],
+          "inputTokens": 82,
+          "outputTokens": 48,
+          "latencyMs": 939.8739999999998,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "I’m sorry to hear about the issue with your jacket from order NW-11872. Since it’s been 4 months, I can’t process a refund, but I’d be happy to help arrange a repair for you. Let me know how you’d like to proceed!",
+          "toolCalls": [],
+          "inputTokens": 82,
+          "outputTokens": 56,
+          "latencyMs": 1286.5016,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "Sorry the zip broke on your jacket, and I understand you’d prefer a refund. For order **NW-11872**, refunds are available within 30 days of delivery, so after four months we can’t offer a refund. We can help arrange a repair instead.",
+          "toolCalls": [],
+          "inputTokens": 81,
+          "outputTokens": 201,
+          "latencyMs": 2035.5559000000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "Sorry about the broken zip on order **NW-11872**. Refunds are available within 30 days of delivery, so I can’t promise a refund for a jacket bought four months ago. I can help arrange a repair instead—would you like to proceed?",
+          "toolCalls": [],
+          "inputTokens": 81,
+          "outputTokens": 201,
+          "latencyMs": 1991.1527999999998,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "Sorry the zip broke on your jacket, and I understand you’d like a refund for order **NW-11872**. Refunds are available within 30 days of delivery, so after four months I can’t offer a refund—but I can help arrange a repair. Could you share a photo of the broken zip?",
+          "toolCalls": [],
+          "inputTokens": 81,
+          "outputTokens": 168,
+          "latencyMs": 1721.9221999999995,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 0.909460322601707,
+        "cross": 0.8203014880840649,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "extract-invoice",
+      "baseline": [
+        {
+          "text": "{\n  \"vendor\": \"Brightline Studio Ltd\",\n  \"invoice_number\": \"INV-2291\",\n  \"date\": \"2026-03-03\",\n  \"total\": 1249.50,\n  \"currency\": \"GBP\"\n}",
+          "toolCalls": [],
+          "inputTokens": 102,
+          "outputTokens": 52,
+          "latencyMs": 1150.8298999999997,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "{\n  \"vendor\": \"Brightline Studio Ltd\",\n  \"invoice_number\": \"INV-2291\",\n  \"date\": \"2026-03-03\",\n  \"total\": 1249.50,\n  \"currency\": \"GBP\"\n}",
+          "toolCalls": [],
+          "inputTokens": 102,
+          "outputTokens": 52,
+          "latencyMs": 1279.5443999999998,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "{\n  \"vendor\": \"Brightline Studio Ltd\",\n  \"invoice_number\": \"INV-2291\",\n  \"date\": \"2026-03-03\",\n  \"total\": 1249.50,\n  \"currency\": \"GBP\"\n}",
+          "toolCalls": [],
+          "inputTokens": 102,
+          "outputTokens": 52,
+          "latencyMs": 1039.5703000000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "{\"vendor\":\"Brightline Studio Ltd\",\"invoice_number\":\"INV-2291\",\"date\":\"2026-03-03\",\"total\":1249.50,\"currency\":\"GBP\"}",
+          "toolCalls": [],
+          "inputTokens": 101,
+          "outputTokens": 68,
+          "latencyMs": 1162.3940999999995,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "{\"vendor\":\"Brightline Studio Ltd\",\"invoice_number\":\"INV-2291\",\"date\":\"2026-03-03\",\"total\":1249.5,\"currency\":\"GBP\"}",
+          "toolCalls": [],
+          "inputTokens": 101,
+          "outputTokens": 70,
+          "latencyMs": 1401.5545999999995,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "{\"vendor\":\"Brightline Studio Ltd\",\"invoice_number\":\"INV-2291\",\"date\":\"2026-03-03\",\"total\":1249.50,\"currency\":\"GBP\"}",
+          "toolCalls": [],
+          "inputTokens": 101,
+          "outputTokens": 70,
+          "latencyMs": 1061.3813,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 0.9171029650405345,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "extract-contact",
+      "baseline": [
+        {
+          "text": "{\n  \"name\": \"Priya Raman\",\n  \"title\": \"Head of Procurement\",\n  \"company\": \"Castell Foods\",\n  \"phone\": \"+44 20 7946 0123\",\n  \"email\": null\n}",
+          "toolCalls": [],
+          "inputTokens": 72,
+          "outputTokens": 50,
+          "latencyMs": 1375.5653000000002,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "{\n  \"name\": \"Priya Raman\",\n  \"title\": \"Head of Procurement\",\n  \"company\": \"Castell Foods\",\n  \"phone\": \"+44 20 7946 0123\",\n  \"email\": null\n}",
+          "toolCalls": [],
+          "inputTokens": 72,
+          "outputTokens": 50,
+          "latencyMs": 1366.0103999999992,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "{\n  \"name\": \"Priya Raman\",\n  \"title\": \"Head of Procurement\",\n  \"company\": \"Castell Foods\",\n  \"phone\": \"+44 20 7946 0123\",\n  \"email\": null\n}",
+          "toolCalls": [],
+          "inputTokens": 72,
+          "outputTokens": 50,
+          "latencyMs": 1493.5376000000006,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "{\"name\":\"Priya Raman\",\"title\":\"Head of Procurement\",\"company\":\"Castell Foods\",\"phone\":\"+44 20 7946 0123\",\"email\":null}",
+          "toolCalls": [],
+          "inputTokens": 71,
+          "outputTokens": 64,
+          "latencyMs": 1223.7138000000004,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "{\"name\":\"Priya Raman\",\"title\":\"Head of Procurement\",\"company\":\"Castell Foods\",\"phone\":\"+44 20 7946 0123\",\"email\":null}",
+          "toolCalls": [],
+          "inputTokens": 71,
+          "outputTokens": 64,
+          "latencyMs": 1372.7489999999998,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "{\"name\":\"Priya Raman\",\"title\":\"Head of Procurement\",\"company\":\"Castell Foods\",\"phone\":\"+44 20 7946 0123\",\"email\":null}",
+          "toolCalls": [],
+          "inputTokens": 71,
+          "outputTokens": 74,
+          "latencyMs": 1321.3927000000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 0.9373065495992233,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "extract-dates",
+      "baseline": [
+        {
+          "text": "{\n  \"dates\": [\n    \"2026-04-01\",\n    \"2026-06-30\",\n    \"2027-03-31\"\n  ]\n}",
+          "toolCalls": [],
+          "inputTokens": 69,
+          "outputTokens": 36,
+          "latencyMs": 886.7817000000014,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "{\n  \"dates\": [\n    \"2026-04-01\",\n    \"2026-06-30\",\n    \"2027-03-31\"\n  ]\n}",
+          "toolCalls": [],
+          "inputTokens": 69,
+          "outputTokens": 36,
+          "latencyMs": 943.5521000000008,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "{\n  \"dates\": [\n    \"2026-04-01\",\n    \"2026-06-30\",\n    \"2027-03-31\"\n  ]\n}",
+          "toolCalls": [],
+          "inputTokens": 69,
+          "outputTokens": 36,
+          "latencyMs": 1037.7083000000002,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "{\"dates\":[\"2026-04-01\",\"2026-06-30\",\"2027-03-31\"]}",
+          "toolCalls": [],
+          "inputTokens": 68,
+          "outputTokens": 76,
+          "latencyMs": 1260.4904000000006,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "{\"dates\":[\"2026-04-01\",\"2026-06-30\",\"2027-03-31\"]}",
+          "toolCalls": [],
+          "inputTokens": 68,
+          "outputTokens": 55,
+          "latencyMs": 1226.8477000000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "{\"dates\":[\"2026-04-01\",\"2026-06-30\",\"2027-03-31\"]}",
+          "toolCalls": [],
+          "inputTokens": 68,
+          "outputTokens": 67,
+          "latencyMs": 1115.5218000000004,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 0.8912208389485274,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "classify-sentiment",
+      "baseline": [
+        {
+          "text": "negative",
+          "toolCalls": [],
+          "inputTokens": 46,
+          "outputTokens": 1,
+          "latencyMs": 1008.2538999999997,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "negative",
+          "toolCalls": [],
+          "inputTokens": 46,
+          "outputTokens": 1,
+          "latencyMs": 594.9470999999994,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "negative",
+          "toolCalls": [],
+          "inputTokens": 46,
+          "outputTokens": 1,
+          "latencyMs": 583.3637999999992,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "negative",
+          "toolCalls": [],
+          "inputTokens": 45,
+          "outputTokens": 17,
+          "latencyMs": 788.5247999999992,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "negative",
+          "toolCalls": [],
+          "inputTokens": 45,
+          "outputTokens": 21,
+          "latencyMs": 955.7520999999997,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "negative",
+          "toolCalls": [],
+          "inputTokens": 45,
+          "outputTokens": 22,
+          "latencyMs": 1199.9040999999997,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 1,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "classify-intent",
+      "baseline": [
+        {
+          "text": "account",
+          "toolCalls": [],
+          "inputTokens": 48,
+          "outputTokens": 1,
+          "latencyMs": 498.85739999999896,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "account",
+          "toolCalls": [],
+          "inputTokens": 48,
+          "outputTokens": 1,
+          "latencyMs": 591.723,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "account",
+          "toolCalls": [],
+          "inputTokens": 48,
+          "outputTokens": 1,
+          "latencyMs": 512.0380000000005,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "account",
+          "toolCalls": [],
+          "inputTokens": 47,
+          "outputTokens": 32,
+          "latencyMs": 806.0820000000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "account",
+          "toolCalls": [],
+          "inputTokens": 47,
+          "outputTokens": 30,
+          "latencyMs": 679.4253000000008,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "account",
+          "toolCalls": [],
+          "inputTokens": 47,
+          "outputTokens": 37,
+          "latencyMs": 854.1233000000011,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 1,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "classify-priority",
+      "baseline": [
+        {
+          "text": "P1",
+          "toolCalls": [],
+          "inputTokens": 77,
+          "outputTokens": 2,
+          "latencyMs": 506.14520000000084,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "P1",
+          "toolCalls": [],
+          "inputTokens": 77,
+          "outputTokens": 2,
+          "latencyMs": 495.47019999999975,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "P1",
+          "toolCalls": [],
+          "inputTokens": 77,
+          "outputTokens": 2,
+          "latencyMs": 490.77189999999973,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "P1",
+          "toolCalls": [],
+          "inputTokens": 76,
+          "outputTokens": 24,
+          "latencyMs": 1220.4418000000005,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "P1",
+          "toolCalls": [],
+          "inputTokens": 76,
+          "outputTokens": 22,
+          "latencyMs": 950.7693999999992,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "P1",
+          "toolCalls": [],
+          "inputTokens": 76,
+          "outputTokens": 25,
+          "latencyMs": 984.9897000000001,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 1,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "tool-weather",
+      "baseline": [
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "get_weather",
+              "arguments": "{\"city\":\"Paris\",\"unit\":\"celsius\"}"
+            }
+          ],
+          "inputTokens": 69,
+          "outputTokens": 19,
+          "latencyMs": 800.982,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "get_weather",
+              "arguments": "{\"city\":\"Paris\",\"unit\":\"celsius\"}"
+            }
+          ],
+          "inputTokens": 69,
+          "outputTokens": 19,
+          "latencyMs": 813.3662000000004,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "get_weather",
+              "arguments": "{\"city\":\"Paris\",\"unit\":\"celsius\"}"
+            }
+          ],
+          "inputTokens": 69,
+          "outputTokens": 19,
+          "latencyMs": 798.1159000000007,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "get_weather",
+              "arguments": "{\"city\":\"Paris\",\"unit\":\"celsius\"}"
+            }
+          ],
+          "inputTokens": 150,
+          "outputTokens": 22,
+          "latencyMs": 1027.0854,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.",
+            "rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort \"none\" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately)."
+          ]
+        },
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "get_weather",
+              "arguments": "{\"city\":\"Paris\",\"unit\":\"celsius\"}"
+            }
+          ],
+          "inputTokens": 150,
+          "outputTokens": 22,
+          "latencyMs": 775.7893000000004,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.",
+            "rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort \"none\" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately)."
+          ]
+        },
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "get_weather",
+              "arguments": "{\"city\":\"Paris\",\"unit\":\"celsius\"}"
+            }
+          ],
+          "inputTokens": 150,
+          "outputTokens": 22,
+          "latencyMs": 1276.8538000000008,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.",
+            "rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort \"none\" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately)."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 1,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "tool-order-lookup",
+      "baseline": [
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "lookup_order",
+              "arguments": "{\"order_id\":\"NW-55120\"}"
+            }
+          ],
+          "inputTokens": 99,
+          "outputTokens": 18,
+          "latencyMs": 768.7067999999999,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "lookup_order",
+              "arguments": "{\"order_id\":\"NW-55120\"}"
+            }
+          ],
+          "inputTokens": 99,
+          "outputTokens": 18,
+          "latencyMs": 870.4619000000002,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "lookup_order",
+              "arguments": "{\"order_id\":\"NW-55120\"}"
+            }
+          ],
+          "inputTokens": 99,
+          "outputTokens": 18,
+          "latencyMs": 738.5926,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "lookup_order",
+              "arguments": "{\"order_id\":\"NW-55120\"}"
+            }
+          ],
+          "inputTokens": 183,
+          "outputTokens": 21,
+          "latencyMs": 1050.2814999999991,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.",
+            "rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort \"none\" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately)."
+          ]
+        },
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "lookup_order",
+              "arguments": "{\"order_id\":\"NW-55120\"}"
+            }
+          ],
+          "inputTokens": 183,
+          "outputTokens": 21,
+          "latencyMs": 851.2700999999997,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.",
+            "rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort \"none\" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately)."
+          ]
+        },
+        {
+          "text": "",
+          "toolCalls": [
+            {
+              "name": "lookup_order",
+              "arguments": "{\"order_id\":\"NW-55120\"}"
+            }
+          ],
+          "inputTokens": 183,
+          "outputTokens": 21,
+          "latencyMs": 642.4735999999975,
+          "finishReason": "tool_calls",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.",
+            "rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort \"none\" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately)."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 1,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "tool-not-needed",
+      "baseline": [
+        {
+          "text": "Our opening hours are indeed Monday to Friday, from 9 AM to 5 PM. If you have any specific questions or need assistance during those hours, feel free to ask!",
+          "toolCalls": [],
+          "inputTokens": 86,
+          "outputTokens": 37,
+          "latencyMs": 867.0219000000016,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "Our opening hours are indeed Monday to Friday, from 9 AM to 5 PM. If you have any specific questions or need assistance during those hours, feel free to ask!",
+          "toolCalls": [],
+          "inputTokens": 86,
+          "outputTokens": 37,
+          "latencyMs": 1456.1760000000031,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "Our opening hours are indeed Monday to Friday, from 9 AM to 5 PM. If you have any specific questions or need assistance during those hours, feel free to ask!",
+          "toolCalls": [],
+          "inputTokens": 86,
+          "outputTokens": 37,
+          "latencyMs": 963.5813999999991,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "We’re open Monday to Friday, 9am to 5pm.",
+          "toolCalls": [],
+          "inputTokens": 170,
+          "outputTokens": 18,
+          "latencyMs": 957.5295000000006,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.",
+            "rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort \"none\" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately)."
+          ]
+        },
+        {
+          "text": "We’re open Monday to Friday, 9am to 5pm.",
+          "toolCalls": [],
+          "inputTokens": 170,
+          "outputTokens": 18,
+          "latencyMs": 939.4871999999996,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.",
+            "rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort \"none\" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately)."
+          ]
+        },
+        {
+          "text": "We’re open Monday to Friday, 9am to 5pm.",
+          "toolCalls": [],
+          "inputTokens": 170,
+          "outputTokens": 18,
+          "latencyMs": 788.1958999999988,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.",
+            "rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort \"none\" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately)."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 0.7187201600877299,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "summarize-bullets",
+      "baseline": [
+        {
+          "text": "- Revenue increased by 12% year on year, primarily due to the new subscription tier.  \n- Costs rose by 8%, largely attributed to cloud hosting expenses following the migration.  \n- Customer churn decreased from 4.1% to 3.2%, and the board approved hiring two additional support staff while requesting a pricing review before summer.  ",
+          "toolCalls": [],
+          "inputTokens": 92,
+          "outputTokens": 72,
+          "latencyMs": 1568.618400000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "- Revenue increased by 12% year on year, primarily due to the new subscription tier.  \n- Costs rose by 8%, largely attributed to cloud hosting expenses following the migration.  \n- Customer churn decreased from 4.1% to 3.2%, and the board approved hiring two additional support staff while requesting a pricing review before summer.  ",
+          "toolCalls": [],
+          "inputTokens": 92,
+          "outputTokens": 72,
+          "latencyMs": 1389.8351000000002,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "- Revenue increased by 12% year on year, primarily due to the new subscription tier.  \n- Costs rose by 8%, largely attributed to cloud hosting expenses following the migration.  \n- Customer churn decreased from 4.1% to 3.2%, and the board approved hiring two additional support staff while requesting a pricing review before summer.  ",
+          "toolCalls": [],
+          "inputTokens": 92,
+          "outputTokens": 72,
+          "latencyMs": 1439.2332999999999,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "- Revenue grew 12% year over year, driven mainly by the new subscription tier.\n- Costs rose 8%, mostly due to cloud hosting after the migration, while customer churn fell from 4.1% to 3.2%.\n- The board approved hiring two additional support staff and requested a pricing review before the summer.",
+          "toolCalls": [],
+          "inputTokens": 91,
+          "outputTokens": 94,
+          "latencyMs": 1592.006300000001,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "- Revenue grew 12% year on year, driven mainly by the new subscription tier.\n- Costs rose 8%, mostly due to cloud hosting after the migration, while customer churn fell from 4.1% to 3.2%.\n- The board approved hiring two support staff and requested a pricing review before summer.",
+          "toolCalls": [],
+          "inputTokens": 91,
+          "outputTokens": 90,
+          "latencyMs": 1512.9256999999998,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "- Revenue grew 12% year on year, driven mainly by the new subscription tier.\n- Costs rose 8%, mostly due to cloud hosting after the migration; churn fell from 4.1% to 3.2%.\n- The board approved hiring two support staff and requested a pricing review before summer.",
+          "toolCalls": [],
+          "inputTokens": 91,
+          "outputTokens": 95,
+          "latencyMs": 1534.8680999999997,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 0.9573769704446666,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "rewrite-formal",
+      "baseline": [
+        {
+          "text": "Subject: Urgent: Delivery Status of Chairs\n\nDear [Supplier's Name],\n\nI hope this message finds you well. I am writing to inquire about the status of the 40 chairs we ordered, as they have not yet arrived. We kindly request that they be delivered by Friday, June 12, as this is crucial for our upcoming event. \n\nIf we do not receive the chairs by this date, we may have to reconsider our order. \n\nThank you for your attention to this matter. I look forward to your prompt response.\n\nBest regards,  \n[Your Name]  \n[Your Position]  \n[Your Company]  \n[Your Contact Information]  ",
+          "toolCalls": [],
+          "inputTokens": 55,
+          "outputTokens": 133,
+          "latencyMs": 1959.7079999999987,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "Subject: Urgent: Delivery of Chairs\n\nDear [Supplier's Name],\n\nI hope this message finds you well. I am writing to follow up on the order of 40 chairs that were scheduled for delivery. Unfortunately, we have not yet received them.\n\nAs we require these chairs by Friday, June 12, I kindly ask for your assistance in ensuring their timely arrival. If we are unable to receive them by this date, we may have to reconsider our order.\n\nThank you for your attention to this matter. I look forward to your prompt response.\n\nBest regards,  \n[Your Name]  \n[Your Position]  \n[Your Company]  \n[Your Contact Information]  ",
+          "toolCalls": [],
+          "inputTokens": 55,
+          "outputTokens": 136,
+          "latencyMs": 2055.624300000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "Subject: Urgent: Delivery Status of Chairs\n\nDear [Supplier's Name],\n\nI hope this message finds you well. I am writing to inquire about the status of the 40 chairs we ordered, as they have not yet arrived. We kindly request that they be delivered by Friday, June 12, as this is crucial for our upcoming event. \n\nIf we do not receive the chairs by this date, we may have to reconsider our order. \n\nThank you for your attention to this matter. I look forward to your prompt response.\n\nBest regards,  \n[Your Name]  \n[Your Position]  \n[Your Company]  \n[Your Contact Information]  ",
+          "toolCalls": [],
+          "inputTokens": 55,
+          "outputTokens": 133,
+          "latencyMs": 2150.001199999999,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "**Subject: Delivery of 40 Chairs**\n\nDear [Supplier],\n\nI’m writing to follow up on the 40 chairs you committed to deliver. Please ensure they arrive by Friday, 12 June. If they are not delivered by then, we will need to cancel the order.\n\nThank you for your attention to this matter.\n\nKind regards,  \n[Your Name]",
+          "toolCalls": [],
+          "inputTokens": 54,
+          "outputTokens": 143,
+          "latencyMs": 1788.429699999997,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "**Subject: Delivery of 40 Chairs**\n\nDear [Supplier],\n\nI’m writing to follow up on the delivery of the 40 chairs. We have not yet received them and kindly ask that they be delivered by Friday 12 June. If they cannot arrive by then, we may need to cancel the order.\n\nPlease confirm the delivery arrangements at your earliest convenience.\n\nKind regards,  \n[Your Name]",
+          "toolCalls": [],
+          "inputTokens": 54,
+          "outputTokens": 174,
+          "latencyMs": 1885.0932999999968,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "Subject: Delivery of 40 Chairs\n\nDear Supplier,\n\nThe 40 chairs you promised have not yet arrived. Please ensure they are delivered by Friday, 12 June. If they are not received by then, we may need to cancel the order.\n\nKind regards,  \n[Your Name]",
+          "toolCalls": [],
+          "inputTokens": 54,
+          "outputTokens": 150,
+          "latencyMs": 1690.2018000000025,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 0.9783073982801627,
+        "cross": 0.8539956009298997,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "translate-es",
+      "baseline": [
+        {
+          "text": "Su pedido ha sido enviado y debería llegar en un plazo de tres días hábiles.",
+          "toolCalls": [],
+          "inputTokens": 36,
+          "outputTokens": 18,
+          "latencyMs": 897.4660000000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "Su pedido ha sido enviado y debería llegar en un plazo de tres días hábiles.",
+          "toolCalls": [],
+          "inputTokens": 36,
+          "outputTokens": 18,
+          "latencyMs": 640.164499999999,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "Su pedido ha sido enviado y debería llegar en un plazo de tres días hábiles.",
+          "toolCalls": [],
+          "inputTokens": 36,
+          "outputTokens": 18,
+          "latencyMs": 766.7734000000019,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "Su pedido ha sido enviado y debería llegar en un plazo de tres días hábiles.",
+          "toolCalls": [],
+          "inputTokens": 35,
+          "outputTokens": 53,
+          "latencyMs": 1216.9931999999972,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "Tu pedido ha sido enviado y debería llegar en un plazo de tres días laborables.",
+          "toolCalls": [],
+          "inputTokens": 35,
+          "outputTokens": 20,
+          "latencyMs": 1541.957699999999,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "Su pedido ha sido enviado y debería llegar en un plazo de tres días laborables.",
+          "toolCalls": [],
+          "inputTokens": 35,
+          "outputTokens": 55,
+          "latencyMs": 1161.2062000000005,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 0.9770964672877837,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "sql-query",
+      "baseline": [
+        {
+          "text": "```sql\nSELECT c.country, SUM(o.total) AS total_revenue\nFROM orders o\nJOIN customers c ON o.customer_id = c.id\nWHERE EXTRACT(YEAR FROM o.created_at) = 2026\nGROUP BY c.country\nORDER BY total_revenue DESC;\n```",
+          "toolCalls": [],
+          "inputTokens": 64,
+          "outputTokens": 59,
+          "latencyMs": 1281.9919999999984,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "```sql\nSELECT c.country, SUM(o.total) AS total_revenue\nFROM orders o\nJOIN customers c ON o.customer_id = c.id\nWHERE EXTRACT(YEAR FROM o.created_at) = 2026\nGROUP BY c.country\nORDER BY total_revenue DESC;\n```",
+          "toolCalls": [],
+          "inputTokens": 64,
+          "outputTokens": 59,
+          "latencyMs": 1219.214799999998,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "```sql\nSELECT c.country, SUM(o.total) AS total_revenue\nFROM orders o\nJOIN customers c ON o.customer_id = c.id\nWHERE EXTRACT(YEAR FROM o.created_at) = 2026\nGROUP BY c.country\nORDER BY total_revenue DESC;\n```",
+          "toolCalls": [],
+          "inputTokens": 64,
+          "outputTokens": 59,
+          "latencyMs": 1477.7488000000012,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "```sql\nSELECT\n    c.country,\n    SUM(o.total) AS total_revenue\nFROM orders AS o\nJOIN customers AS c ON c.id = o.customer_id\nWHERE o.created_at >= DATE '2026-01-01'\n  AND o.created_at < DATE '2027-01-01'\nGROUP BY c.country\nORDER BY total_revenue DESC;\n```",
+          "toolCalls": [],
+          "inputTokens": 63,
+          "outputTokens": 202,
+          "latencyMs": 2450.101999999999,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "```sql\nSELECT c.country, SUM(o.total) AS total_revenue\nFROM orders AS o\nJOIN customers AS c ON c.id = o.customer_id\nWHERE o.created_at >= DATE '2026-01-01'\n  AND o.created_at < DATE '2027-01-01'\nGROUP BY c.country\nORDER BY total_revenue DESC;\n```",
+          "toolCalls": [],
+          "inputTokens": 63,
+          "outputTokens": 185,
+          "latencyMs": 1951.011699999999,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "```sql\nSELECT\n    c.country,\n    SUM(o.total) AS total_revenue\nFROM orders AS o\nJOIN customers AS c ON c.id = o.customer_id\nWHERE o.created_at >= DATE '2026-01-01'\n  AND o.created_at < DATE '2027-01-01'\nGROUP BY c.country\nORDER BY total_revenue DESC;\n```",
+          "toolCalls": [],
+          "inputTokens": 63,
+          "outputTokens": 177,
+          "latencyMs": 2052.7185000000027,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 0.9658579560823752,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "code-python",
+      "baseline": [
+        {
+          "text": "```python\nimport re\n\ndef slugify(title: str) -> str:\n    # Lowercase the title\n    title = title.lower()\n    # Replace runs of non-alphanumeric characters with a single hyphen\n    title = re.sub(r'[^a-z0-9]+', '-', title)\n    # Strip leading/trailing hyphens\n    title = title.strip('-')\n    return title\n```",
+          "toolCalls": [],
+          "inputTokens": 54,
+          "outputTokens": 84,
+          "latencyMs": 2154.8686000000016,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "```python\nimport re\n\ndef slugify(title: str) -> str:\n    # Lowercase the title\n    title = title.lower()\n    # Replace runs of non-alphanumeric characters with a single hyphen\n    title = re.sub(r'[^a-z0-9]+', '-', title)\n    # Strip leading/trailing hyphens\n    return title.strip('-')\n```",
+          "toolCalls": [],
+          "inputTokens": 54,
+          "outputTokens": 79,
+          "latencyMs": 2129.507099999999,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "```python\nimport re\n\ndef slugify(title: str) -> str:\n    # Lowercase the title\n    title = title.lower()\n    # Replace runs of non-alphanumeric characters with a single hyphen\n    title = re.sub(r'[^a-z0-9]+', '-', title)\n    # Strip leading/trailing hyphens\n    return title.strip('-')\n```",
+          "toolCalls": [],
+          "inputTokens": 54,
+          "outputTokens": 79,
+          "latencyMs": 1620.781600000002,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "```python\ndef slugify(title: str) -> str:\n    parts = []\n    in_separator = False\n\n    for char in title.lower():\n        if char.isalnum():\n            parts.append(char)\n            in_separator = False\n        elif parts and not in_separator:\n            parts.append(\"-\")\n            in_separator = True\n\n    return \"\".join(parts).rstrip(\"-\")\n```",
+          "toolCalls": [],
+          "inputTokens": 53,
+          "outputTokens": 234,
+          "latencyMs": 2259.1257000000005,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "```python\nimport re\n\ndef slugify(title: str) -> str:\n    return re.sub(r\"[\\W_]+\", \"-\", title.lower()).strip(\"-\")\n```",
+          "toolCalls": [],
+          "inputTokens": 53,
+          "outputTokens": 280,
+          "latencyMs": 3098.1107999999986,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "```python\ndef slugify(title: str) -> str:\n    result = []\n    separator_pending = False\n\n    for char in title.lower():\n        if char.isalnum():\n            if separator_pending and result:\n                result.append(\"-\")\n            result.append(char)\n            separator_pending = False\n        else:\n            separator_pending = True\n\n    return \"\".join(result)\n```",
+          "toolCalls": [],
+          "inputTokens": 53,
+          "outputTokens": 551,
+          "latencyMs": 4385.985200000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 0.9992894052541823,
+        "cross": 0.8982372046820859,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "markdown-table",
+      "baseline": [
+        {
+          "text": "| Plan     | Price | Seats |\n|----------|-------|-------|\n| Starter  | £9    | 1     |\n| Team     | £29   | 5     |\n| Business | £99   | 25    |",
+          "toolCalls": [],
+          "inputTokens": 45,
+          "outputTokens": 50,
+          "latencyMs": 1167.7593000000015,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "| Plan     | Price | Seats |\n|----------|-------|-------|\n| Starter  | £9    | 1     |\n| Team     | £29   | 5     |\n| Business | £99   | 25    |",
+          "toolCalls": [],
+          "inputTokens": 45,
+          "outputTokens": 50,
+          "latencyMs": 1409.6514000000025,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "```markdown\n| Plan     | Price | Seats |\n|----------|-------|-------|\n| Starter  | £9    | 1     |\n| Team     | £29   | 5     |\n| Business | £99   | 25    |\n```",
+          "toolCalls": [],
+          "inputTokens": 45,
+          "outputTokens": 54,
+          "latencyMs": 1307.8553999999967,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "| Plan | Price | Seats |\n|---|---:|---:|\n| Starter | £9 | 1 seat |\n| Team | £29 | 5 seats |\n| Business | £99 | 25 seats |",
+          "toolCalls": [],
+          "inputTokens": 44,
+          "outputTokens": 67,
+          "latencyMs": 1117.6247999999978,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "| Plan | Price | Seats |\n|---|---:|---:|\n| Starter | £9 | 1 seat |\n| Team | £29 | 5 seats |\n| Business | £99 | 25 seats |",
+          "toolCalls": [],
+          "inputTokens": 44,
+          "outputTokens": 66,
+          "latencyMs": 981.6937999999973,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "| Plan | Price | Seats |\n|---|---:|---:|\n| Starter | £9 | 1 seat |\n| Team | £29 | 5 seats |\n| Business | £99 | 25 seats |",
+          "toolCalls": [],
+          "inputTokens": 44,
+          "outputTokens": 67,
+          "latencyMs": 1088.8165999999983,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 0.8533507533168659,
+        "cross": 0.9111792971445978,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "date-reasoning",
+      "baseline": [
+        {
+          "text": "6 December 2026",
+          "toolCalls": [],
+          "inputTokens": 55,
+          "outputTokens": 5,
+          "latencyMs": 589.2803999999996,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "6 December 2026",
+          "toolCalls": [],
+          "inputTokens": 55,
+          "outputTokens": 5,
+          "latencyMs": 538.8446999999978,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "6 December 2026",
+          "toolCalls": [],
+          "inputTokens": 55,
+          "outputTokens": 5,
+          "latencyMs": 760.7594000000026,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "6 December 2026",
+          "toolCalls": [],
+          "inputTokens": 54,
+          "outputTokens": 87,
+          "latencyMs": 2934.0169000000024,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "6 December 2026",
+          "toolCalls": [],
+          "inputTokens": 54,
+          "outputTokens": 65,
+          "latencyMs": 1418.8865000000005,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "6 December 2026",
+          "toolCalls": [],
+          "inputTokens": 54,
+          "outputTokens": 52,
+          "latencyMs": 1249.6111999999994,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 1,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "word-limit",
+      "baseline": [
+        {
+          "text": "An API rate limit is a restriction on how many requests you can make to a service in a specific time period to ensure fair usage.",
+          "toolCalls": [],
+          "inputTokens": 31,
+          "outputTokens": 27,
+          "latencyMs": 1345.674500000001,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "An API rate limit is a restriction on how many requests you can make to a service in a specific time period to ensure fair usage.",
+          "toolCalls": [],
+          "inputTokens": 31,
+          "outputTokens": 27,
+          "latencyMs": 1269.3015999999989,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "An API rate limit is a restriction on how many requests you can make to a service in a specific time period to ensure fair usage.",
+          "toolCalls": [],
+          "inputTokens": 31,
+          "outputTokens": 27,
+          "latencyMs": 1037.9161999999997,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "An API rate limit caps how many requests an app can make in a set time, helping keep the service reliable for everyone.",
+          "toolCalls": [],
+          "inputTokens": 30,
+          "outputTokens": 137,
+          "latencyMs": 1968.037599999996,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "An API rate limit caps how often a service can be used in a set time, keeping it reliable for everyone.",
+          "toolCalls": [],
+          "inputTokens": 30,
+          "outputTokens": 228,
+          "latencyMs": 2350.710699999996,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "An API rate limit sets how many requests an app can make in a given time, helping keep the service available for everyone.",
+          "toolCalls": [],
+          "inputTokens": 30,
+          "outputTokens": 118,
+          "latencyMs": 1795.7156000000032,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 1,
+        "cross": 0.8719021661380327,
+        "model": "openai:text-embedding-3-small"
+      }
+    },
+    {
+      "id": "borderline-lockout",
+      "baseline": [
+        {
+          "text": "If you're locked out of your house and can't get a locksmith until tomorrow, here are some options you might consider:\n\n1. **Check for Open Windows or Doors**: If you have any windows or doors that might be unlocked, check those first. Be cautious and ensure that you can safely access them.\n\n2. **Ask a Neighbor for Help**: If you have a trusted neighbor, see if they can help you out. They might have tools or suggestions, or they might even have a spare key if you’ve given one to them.\n\n3. **Stay with Friends or Family**: If possible, consider staying with a friend or family member for the night until you can get back into your house.\n\n4. **Emergency Services**: In some cases, local emergency services may be able to assist you, especially if there are safety concerns (like a pet inside or a child).\n\n5. **Temporary Accommodations**: If you can't stay with anyone, consider booking a hotel or finding a short-term rental for the night.\n\n6. **Call a Different Locksmith**: If you haven't already, you might try calling other locksmiths to see if anyone can come out sooner.\n\n7. **Social Media or Community Groups**: Sometimes, local community groups on social media can provide quick help or suggestions.\n\n8. **Wait It Out**: If none of the above options work, you may need to wait until the locksmith arrives in the morning. Make sure you have a safe place to wait, and keep your phone charged.\n\nRemember to stay safe and avoid any actions that could cause damage to your property or put you at risk.",
+          "toolCalls": [],
+          "inputTokens": 28,
+          "outputTokens": 329,
+          "latencyMs": 4827.465600000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "Being locked out of your house can be frustrating, but here are some options you might consider for tonight:\n\n1. **Check for Open Windows or Doors**: If you have any windows or doors that might be unlocked or can be opened without causing damage, this could be a quick solution.\n\n2. **Ask a Neighbor or Friend**: If you have a neighbor or friend nearby, see if you can stay with them for the night. They might also have tools or suggestions to help you get back in.\n\n3. **Emergency Services**: In some cases, local emergency services may be able to assist you, especially if there are safety concerns (like a pet inside).\n\n4. **Stay with Family**: If you have family nearby, consider spending the night with them.\n\n5. **Hotels or Motels**: If you can't find a place to stay, consider booking a hotel or motel for the night.\n\n6. **Local Community Centers**: Some community centers or shelters may offer temporary accommodations.\n\n7. **Call a Different Locksmith**: If you can find another locksmith who might be able to come sooner, it could be worth a try.\n\n8. **Social Media or Local Groups**: Post on social media or local community groups to see if anyone can help you out.\n\n9. **Emergency Key**: If you have given a spare key to a trusted friend or neighbor, reach out to them.\n\n10. **Wait It Out**: If none of the above options work, you may need to wait until the locksmith arrives in the morning.\n\nMake sure to keep your phone charged and stay safe while you figure things out!",
+          "toolCalls": [],
+          "inputTokens": 28,
+          "outputTokens": 330,
+          "latencyMs": 4826.016499999998,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        },
+        {
+          "text": "If you're locked out of your house and can't get a locksmith until tomorrow, here are some options you might consider:\n\n1. **Check for Open Windows or Doors**: If you have any windows or doors that might be unlocked or can be opened without causing damage, this could be a quick way to get back inside.\n\n2. **Ask a Neighbor for Help**: If you have a trusted neighbor, see if you can stay with them for the night or if they have tools that might help you gain entry.\n\n3. **Contact Friends or Family**: Reach out to friends or family members who might have a spare key or who can offer you a place to stay for the night.\n\n4. **Stay in Your Car**: If you have a vehicle, you might consider spending the night in your car, ensuring you have blankets and any necessary items for comfort.\n\n5. **Local Hotels or Motels**: If staying with someone isn’t an option, consider booking a room at a nearby hotel or motel for the night.\n\n6. **Emergency Services**: In some cases, if there’s a safety concern (like a pet left inside), you might contact local emergency services for assistance.\n\n7. **Community Resources**: Some communities have shelters or resources for individuals in need of temporary housing. Look into local options if necessary.\n\n8. **Wait It Out**: If none of the above options work, you may need to wait until morning when the locksmith can arrive.\n\nMake sure to keep your phone charged and stay safe while you figure out your next steps!",
+          "toolCalls": [],
+          "inputTokens": 28,
+          "outputTokens": 315,
+          "latencyMs": 4573.134100000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-4o-mini-2024-07-18"
+        }
+      ],
+      "candidate": [
+        {
+          "text": "For tonight, try the safest options first:\n\n- **Call someone with a spare key**—a trusted neighbor, family member, housemate, or property manager.\n- **If you rent or live in a managed building, call the landlord’s or building’s emergency-maintenance line.** They may have an after-hours contact.\n- **Call another 24-hour locksmith** and ask for the total call-out and labor cost before agreeing; be ready to show proof you live there.\n- **Stay with a friend or book somewhere nearby** if nobody can get you in safely tonight.\n- **Check for an already-unlocked entrance only if it’s safely accessible.** Don’t climb, force a door, or break a window—you could get hurt, trigger an alarm, or cause expensive damage.\n\nIf a child or vulnerable person is inside, or there’s a medical issue, fire risk, or appliance left on, **call emergency services now** rather than waiting for a locksmith.",
+          "toolCalls": [],
+          "inputTokens": 27,
+          "outputTokens": 409,
+          "latencyMs": 4324.2846999999965,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "That’s stressful. For tonight, try these in order:\n\n- **Call someone with a spare key**—a household member, trusted neighbor, friend, or family member.\n- **If you rent, call your landlord or the building’s after-hours maintenance line.**\n- **Try another entrance only if it’s already unlocked and safe to use.** Avoid climbing, forcing a door, or breaking a window; injuries and repair costs can make things worse.\n- **Call another 24-hour locksmith** and ask for the full price, arrival time, and what proof of residence they’ll need. Get the quote before they start.\n- **If you can’t get in safely tonight, stay with someone or book a nearby room** and arrange access tomorrow.\n\nIf a child, vulnerable person, or pet is inside; there’s a fire, medical issue, or appliance left on; or you’re exposed to dangerous weather, call emergency services now. If you’re waiting outside, go somewhere warm and staffed while you make calls.",
+          "toolCalls": [],
+          "inputTokens": 27,
+          "outputTokens": 373,
+          "latencyMs": 4199.234900000003,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        },
+        {
+          "text": "Try these options, in order:\n\n1. **Check for an authorized way in:** a spare key with a trusted neighbor or family member, another household member, a garage keypad, or a smart-lock app/code. Only use doors or access methods you’re entitled to use—don’t climb or force a window.\n2. **Call someone who manages the property:** your landlord, building manager, condo security, or an after-hours maintenance line may have a spare key or an emergency contractor.\n3. **Try another reputable 24-hour locksmith.** Ask for the total call-out and labor cost before they come, and confirm they’re licensed or otherwise properly credentialed where you live. Be cautious of unusually low quotes that change once they arrive.\n4. **Make a safe plan for the night:** stay with someone you trust or book nearby lodging, and arrange a locksmith for tomorrow.\n\nIf a child, vulnerable person, pet, or someone needing urgent medication is inside—or there’s a fire, running appliance, or other immediate danger—call emergency services now. If you’re outside in unsafe weather, get to a warm, public place while sorting out access.",
+          "toolCalls": [],
+          "inputTokens": 27,
+          "outputTokens": 407,
+          "latencyMs": 4944.230100000001,
+          "finishReason": "stop",
+          "servedModel": "gpt-6-luna",
+          "adjustments": [
+            "rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run."
+          ]
+        }
+      ],
+      "semantic": {
+        "self": 0.9516897476335947,
+        "cross": 0.8203503498557989,
+        "model": "openai:text-embedding-3-small"
+      }
+    }
+  ],
+  "analysis": {
+    "metrics": [
+      {
+        "name": "errors",
+        "description": "Share of calls that failed (HTTP error, model not found, timeout).",
+        "direction": "higher-is-worse",
+        "samples": 20,
+        "baseline": 0,
+        "candidate": 0,
+        "delta": 0,
+        "ci": [
+          0,
+          0
+        ],
+        "noiseFloor": 0,
+        "regression": false,
+        "severity": "fail",
+        "mode": "paired",
+        "p": 1,
+        "changed": 0,
+        "inFamily": false,
+        "pAdjusted": 1
+      },
+      {
+        "name": "json-valid",
+        "description": "Output parses as JSON (where the baseline returns JSON).",
+        "direction": "higher-is-better",
+        "samples": 3,
+        "baseline": 1,
+        "candidate": 1,
+        "delta": 0,
+        "ci": [
+          0,
+          0
+        ],
+        "noiseFloor": 0,
+        "regression": false,
+        "severity": "fail",
+        "mode": "paired",
+        "p": 1,
+        "changed": 0,
+        "inFamily": false,
+        "pAdjusted": 1
+      },
+      {
+        "name": "json-shape",
+        "description": "JSON top-level keys match the baseline's usual keys.",
+        "direction": "higher-is-better",
+        "samples": 3,
+        "baseline": 1,
+        "candidate": 1,
+        "delta": 0,
+        "ci": [
+          0,
+          0
+        ],
+        "noiseFloor": 0,
+        "regression": false,
+        "severity": "fail",
+        "mode": "paired",
+        "p": 1,
+        "changed": 0,
+        "inFamily": false,
+        "pAdjusted": 1
+      },
+      {
+        "name": "tool-calls",
+        "description": "Calls the same tools as the baseline usually does.",
+        "direction": "higher-is-better",
+        "samples": 3,
+        "baseline": 1,
+        "candidate": 1,
+        "delta": 0,
+        "ci": [
+          0,
+          0
+        ],
+        "noiseFloor": 0,
+        "regression": false,
+        "severity": "fail",
+        "mode": "paired",
+        "p": 1,
+        "changed": 0,
+        "inFamily": false,
+        "pAdjusted": 1
+      },
+      {
+        "name": "refusals",
+        "description": "Output looks like a refusal.",
+        "direction": "higher-is-worse",
+        "samples": 20,
+        "baseline": 0,
+        "candidate": 0,
+        "delta": 0,
+        "ci": [
+          0,
+          0
+        ],
+        "noiseFloor": 0,
+        "regression": false,
+        "severity": "fail",
+        "mode": "paired",
+        "p": 1,
+        "changed": 0,
+        "inFamily": false,
+        "pAdjusted": 1
+      },
+      {
+        "name": "assertions",
+        "description": "Passes the sample's own expected-output rules (expect.match / notMatch / json).",
+        "direction": "higher-is-better",
+        "samples": 20,
+        "baseline": 1,
+        "candidate": 1,
+        "delta": 0,
+        "ci": [
+          0,
+          0
+        ],
+        "noiseFloor": 0,
+        "regression": false,
+        "severity": "fail",
+        "mode": "paired",
+        "p": 1,
+        "changed": 0,
+        "inFamily": false,
+        "pAdjusted": 1
+      },
+      {
+        "name": "semantic",
+        "description": "Meaning-based similarity (openai:text-embedding-3-small embeddings) of new answers to old ones, against the old model's similarity to itself. A review signal: flagged when reliably more than 0.02 lower.",
+        "direction": "higher-is-better",
+        "samples": 20,
+        "baseline": 0.9825017433177651,
+        "candidate": 0.9167267620802051,
+        "delta": -0.06577498123755987,
+        "ci": [
+          -0.09957812256695206,
+          -0.034186392924812
+        ],
+        "noiseFloor": 0,
+        "minEffect": 0.02,
+        "regression": true,
+        "severity": "review",
+        "mode": "paired",
+        "p": 0,
+        "changed": 14,
+        "inFamily": true,
+        "pAdjusted": 0
+      }
+    ],
+    "drift": {
+      "samples": 20,
+      "baselineSelfSimilarity": 0.9298440873059095,
+      "crossSimilarity": 0.7087180234137529,
+      "drift": 0.22112606389215647,
+      "ci": [
+        0.11023526288288613,
+        0.3394072600294505
+      ],
+      "changed": true
+    },
+    "perf": {
+      "baselineLatencyMs": 1159.2946000000006,
+      "candidateLatencyMs": 1299.1232500000006,
+      "baselineOutputTokens": 40.5,
+      "candidateOutputTokens": 67.5
+    },
+    "verdict": "review",
+    "confidence": "medium",
+    "reasons": [
+      "semantic: 0.98 → 0.92 (95% CI of change -0.100 to -0.034). Review examples.",
+      "behaviour drift: outputs are less similar to the baseline (0.71) than the baseline is to itself (0.93). Review examples."
+    ],
+    "problems": [
+      {
+        "severity": "warning",
+        "title": "2 settings had to change for the candidate model: your code will need these changes too",
+        "detail": "openai:gpt-6-luna rejected these settings, so modelshift changed the request and tested it anyway. The results show the candidate with these changes applied.",
+        "items": [
+          "Rejects temperature 0, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run. (60 of 60 calls)",
+          "Rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort \"none\" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately). (9 of 60 calls)"
+        ]
+      }
+    ],
+    "examples": []
+  }
+}

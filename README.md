@@ -130,6 +130,8 @@ modelshift prints the number of API calls and an approximate cost first. Above 6
 
 **4. Read the verdict.** It is one of *likely safe to switch*, *review before switching*, or *not safe to switch yet*, with a confidence level and the reasons. See [Understanding the report](#understanding-the-report).
 
+**A real example.** [`examples/gpt-4o-migration`](examples/gpt-4o-migration) tests GPT-4o mini against its replacement, GPT-6 Luna, on 20 typical app requests. It found three code changes the new model requires, answers that stay correct but are noticeably terser, and higher token use. The samples, results and HTML report are all there, and you can re-run it with your own key.
+
 ---
 
 ## How to use it
@@ -319,6 +321,8 @@ Patterns are regular expressions and **case-insensitive by default**. Write `"/P
 
 A sample passes the **assertions** check only when all of its rules pass.
 
+**Check the outcome, not the method.** A rule that's too strict fails on good answers and looks like a regression. Two real mistakes from the [GPT-4o example](examples/gpt-4o-migration): a rule requiring Python's `re` module failed a correct solution written without it, and `"hey"` (meant to catch a casual greeting) matched inside "t*hey*". Use word boundaries (`"\\bhey\\b"`), accept equivalent forms (`"12 June|June 12"`), and when both models fail a sample, check the rule before blaming the models.
+
 ---
 
 ## Supported providers
@@ -340,6 +344,18 @@ A sample passes the **assertions** check only when all of its rules pass.
 `scan` without `--live` needs no keys at all. It also recognises IDs from Cohere and DeepSeek, which are checked against the calendar.
 
 **Keys stay with their provider.** Each key is only ever sent to its own provider's API, over HTTPS.
+
+### Settings a newer model rejects
+
+Newer models sometimes reject request settings that older ones accepted. When that happens, modelshift makes the smallest change that lets the request run, retries it, and reports the change under [Problems during testing](#problems-during-testing) as one **your code will need too**. Requests that don't use the setting are sent unchanged, and any other error is reported as a failed call, not retried.
+
+| The model rejects | modelshift sends instead | What to change in your code |
+|---|---|---|
+| `temperature` (e.g. GPT-6 Luna only accepts its default of 1) | No temperature, so the model's default is used | Remove `temperature`, or set the value the model accepts. Answers may vary more between runs, which the report's noise checks take into account. |
+| `max_tokens` (it asks for `max_completion_tokens`) | `max_completion_tokens` with the same value | Rename the setting. On reasoning models the limit also covers hidden reasoning tokens, so raise it if answers come back cut short. |
+| Function tools on Chat Completions at the default reasoning effort | `reasoning_effort: "none"` on requests with tools | Send `reasoning_effort: "none"`, or move to the Responses API. The model may answer differently there, so test that separately. |
+
+This applies to OpenAI and the OpenAI-compatible providers (Azure OpenAI, Mistral, DeepInfra, Together AI, Fireworks, Groq and OpenRouter).
 
 ### AWS Bedrock in detail
 
@@ -652,6 +668,7 @@ Problems during testing (1, 1 stopped part of the test):
 |---|---|---|---|
 | **N of M candidate calls failed** | Blocked if all failed or 20% or more; warning otherwise | Part of the new model's behaviour wasn't tested. The errors are grouped, most common first, with the likely cause. | Follow the hint: fix credentials, model ID or region, or lower `--concurrency` and re-run. Successful answers are cached, so a re-run only repeats the failed calls. |
 | **N of M baseline calls failed** | Warning | Fewer samples could be compared. If *all* failed, the old model is probably gone, and candidates are judged on their own against your expected outputs. | If the old model still exists, fix the cause and re-run. If it's gone, add `expect` rules (or keep the logged `reference` and use `--judge`) so the candidate is still tested. |
+| **N settings had to change for the candidate (or baseline) model: your code will need these changes too** | Warning | The model rejected a setting your requests use, such as `temperature: 0`. modelshift changed the request to test the model anyway, and lists each change with the number of calls affected. The results show the model with the changes applied. | Make the same changes in your code when you switch. See [Settings a newer model rejects](#settings-a-newer-model-rejects). |
 | **N samples had no baseline answer** | Warning | Those samples are left out of the paired checks; they're listed by ID. | Re-run to retry them. |
 | **N samples had no candidate answer** | Warning | Only the errors check covers them. | Re-run to retry them. |
 | **N samples got no answer from either model** | Warning | Those samples weren't tested at all. | Check those inputs; they may be too long or rejected by both providers. |

@@ -165,6 +165,61 @@ test("Azure adapter targets the deployment URL with api-key header", async () =>
   assert.equal(calls[0].headers["api-key"], "k");
 });
 
+test("OpenAI adapter adapts to settings a newer model rejects, and records each change", async () => {
+  // Mimics gpt-6-luna: rejects temperature 0, max_tokens, and tools without reasoning_effort "none".
+  const bodies: any[] = [];
+  const fn: FetchFn = async (_url, init) => {
+    const b = JSON.parse(init.body);
+    bodies.push(b);
+    const fail = (msg: string) => ({ ok: false, status: 400, text: async () => JSON.stringify({ error: { message: msg } }) });
+    if (b.temperature === 0) return fail("Unsupported value: 'temperature' does not support 0 with this model. Only the default (1) value is supported.");
+    if ("max_tokens" in b) return fail("Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.");
+    if (b.tools && b.reasoning_effort !== "none") return fail("Function tools with reasoning_effort are not supported for gpt-6-luna in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.");
+    return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: "ok" } }] }) };
+  };
+  const p = createProvider("openai:gpt-6-luna", { env: { OPENAI_API_KEY: "k" }, fetchFn: fn });
+  const tools = [{ type: "function" as const, function: { name: "f", parameters: { type: "object" } } }];
+  const first = await p.chat({ messages: [{ role: "user", content: "a" }], temperature: 0, max_tokens: 50, tools });
+  assert.equal(first.error, undefined);
+  assert.equal(first.text, "ok");
+  assert.equal(first.adjustments?.length, 3);
+  assert.match(first.adjustments![0], /temperature 0/);
+  assert.equal(bodies.length, 4); // rejected three times, then accepted
+  const last = bodies.at(-1);
+  assert.equal(last.temperature, undefined);
+  assert.equal(last.max_completion_tokens, 50);
+  assert.equal(last.reasoning_effort, "none");
+
+  // Later requests get the learned fixes up front: one call, and the changes are still recorded.
+  bodies.length = 0;
+  const second = await p.chat({ messages: [{ role: "user", content: "b" }], temperature: 0 });
+  assert.equal(bodies.length, 1);
+  assert.equal(second.adjustments?.length, 1);
+  // Requests without the rejected setting have nothing to record.
+  const third = await p.chat({ messages: [{ role: "user", content: "c" }] });
+  assert.equal(third.adjustments, undefined);
+
+  // Unrelated 400s are not retried.
+  bodies.length = 0;
+  const bad: FetchFn = async (_u, init) => (bodies.push(JSON.parse(init.body)), { ok: false, status: 400, text: async () => '{"error":{"message":"Invalid messages"}}' });
+  const r = await createProvider("openai:x", { env: { OPENAI_API_KEY: "k" }, fetchFn: bad }).chat({ messages: [{ role: "user", content: "a" }], temperature: 0 });
+  assert.match(r.error!, /Invalid messages/);
+  assert.equal(bodies.length, 1);
+});
+
+test("request changes show up as a warning that the user's code needs them too", () => {
+  const samples = jsonSamples(3);
+  const adj = ["rejects temperature 0, so the model's default temperature was used."];
+  const runs: SampleRun[] = samples.map((s) => ({ id: s.id, baseline: [ok("{}"), ok("{}")], candidate: [ok("{}", { adjustments: adj }), ok("{}", { adjustments: adj })] }));
+  const a = analyze(samples, runs, { baselineSpec: "openai:gpt-4o-mini", candidateSpec: "openai:gpt-6-luna" });
+  const p = a.problems.find((x) => /had to change/.test(x.title));
+  assert.ok(p, JSON.stringify(a.problems));
+  assert.equal(p!.severity, "warning");
+  assert.match(p!.title, /1 setting had to change for the candidate model: your code will need this change too/);
+  assert.match(p!.detail, /openai:gpt-6-luna rejected this setting/);
+  assert.deepEqual(p!.items, ["Rejects temperature 0, so the model's default temperature was used. (6 of 6 calls)"]);
+});
+
 /* ---------------- analysis */
 
 const ok = (text: string, extra: Partial<ChatResponse> = {}): ChatResponse => ({ text, toolCalls: [], latencyMs: 100, ...extra });

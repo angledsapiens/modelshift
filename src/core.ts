@@ -13,7 +13,7 @@ import { embedRuns } from "./run/semantic.js";
 import { renderHtmlReport } from "./report/html.js";
 import type { Assessment, Calendar, Host } from "./types.js";
 
-export const VERSION = "0.1.1";
+export const VERSION = "0.1.2";
 export const CONFIRM_ABOVE_CALLS = 60;
 
 export class UsageError extends Error {}

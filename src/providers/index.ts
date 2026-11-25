@@ -42,6 +42,8 @@ export interface ChatResponse {
   /** Model the provider reports actually serving the request (may differ from the requested one: redirects/aliases). */
   servedModel?: string;
   error?: string; // set when the call failed (HTTP error, model gone, timeout...)
+  /** Settings the model rejected and how the request was changed to make it work (see COMPAT_FIXES). */
+  adjustments?: string[];
 }
 
 export type FetchFn = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
@@ -120,7 +122,44 @@ async function postJsonOnce(fetchFn: FetchFn, url: string, headers: Record<strin
   }
 }
 
+/**
+ * Request settings a model rejects with HTTP 400, and the smallest change that makes the request work.
+ * Newer models drop settings older ones accepted (e.g. gpt-6-luna rejects temperature 0, max_tokens,
+ * and function tools on Chat Completions at its default reasoning effort). Instead of failing every call,
+ * modelshift makes the change, retries, and reports it: the user's code will need the same change.
+ */
+export const COMPAT_FIXES: { id: string; matches: RegExp; applies: (b: Record<string, unknown>) => boolean; fix: (b: Record<string, unknown>) => void; note: (b: Record<string, unknown>) => string }[] = [
+  {
+    id: "temperature",
+    matches: /'?temperature'? (does not support|is not supported)|unsupported (value|parameter): '?temperature/i,
+    applies: (b) => b.temperature !== undefined,
+    fix: (b) => delete b.temperature,
+    note: (b) => `rejects temperature ${b.temperature}, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.`,
+  },
+  {
+    id: "max_tokens",
+    matches: /'?max_tokens'? is not supported[\s\S]*max_completion_tokens/i,
+    applies: (b) => b.max_tokens !== undefined,
+    fix: (b) => {
+      b.max_completion_tokens = b.max_tokens;
+      delete b.max_tokens;
+    },
+    note: () => "rejects max_tokens, so max_completion_tokens was sent instead. Rename it in your code. For reasoning models the limit also covers hidden reasoning tokens, so answers may be cut short at the same value.",
+  },
+  {
+    id: "tools_reasoning_effort",
+    matches: /function tools with reasoning_effort are not supported[\s\S]*reasoning_effort to '?none'?/i,
+    applies: (b) => Array.isArray(b.tools) && b.reasoning_effort === undefined,
+    fix: (b) => {
+      b.reasoning_effort = "none";
+    },
+    note: () => `rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort "none" was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately).`,
+  },
+];
+
 function openAICompatible(provider: string, model: string, base: string, headers: Record<string, string>, fetchFn: FetchFn, timeoutMs: number, urlOverride?: string): ChatProvider {
+  // Fixes this model has needed once are applied up front for later requests, so each call isn't rejected first.
+  const learned = new Set<string>();
   return {
     spec: `${provider}:${model}`,
     provider,
@@ -131,8 +170,22 @@ function openAICompatible(provider: string, model: string, base: string, headers
       if (req.temperature !== undefined) body.temperature = req.temperature;
       if (req.max_tokens !== undefined) body.max_tokens = req.max_tokens;
       if (req.json) body.response_format = { type: "json_object" };
-      const r = await postJson(fetchFn, urlOverride ?? `${base}/chat/completions`, headers, body, timeoutMs);
-      if (r.error) return { text: "", toolCalls: [], latencyMs: r.latencyMs, error: r.error };
+      const adjustments: string[] = [];
+      const apply = (f: (typeof COMPAT_FIXES)[number]) => {
+        adjustments.push(f.note(body));
+        f.fix(body);
+      };
+      for (const f of COMPAT_FIXES) if (learned.has(f.id) && f.applies(body)) apply(f);
+      let r = await postJson(fetchFn, urlOverride ?? `${base}/chat/completions`, headers, body, timeoutMs);
+      for (let i = 0; i < COMPAT_FIXES.length && r.error && r.status === 400; i++) {
+        const f = COMPAT_FIXES.find((c) => c.matches.test(r.error!) && c.applies(body));
+        if (!f) break;
+        learned.add(f.id);
+        apply(f);
+        r = await postJson(fetchFn, urlOverride ?? `${base}/chat/completions`, headers, body, timeoutMs);
+      }
+      const adj = adjustments.length ? { adjustments } : {};
+      if (r.error) return { text: "", toolCalls: [], latencyMs: r.latencyMs, error: r.error, ...adj };
       const choice = r.json?.choices?.[0];
       const msg = choice?.message ?? {};
       return {
@@ -143,6 +196,7 @@ function openAICompatible(provider: string, model: string, base: string, headers
         latencyMs: r.latencyMs,
         finishReason: choice?.finish_reason,
         servedModel: typeof r.json?.model === "string" ? r.json.model : undefined,
+        ...adj,
       };
     },
   };

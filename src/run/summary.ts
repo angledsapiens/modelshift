@@ -7,7 +7,7 @@ export function problemsText(problems: Problem[], indent = "  "): string[] {
   const sorted = [...problems].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "blocker" ? -1 : 1));
   const blockers = problems.filter((p) => p.severity === "blocker").length;
   const lines = [`Problems during testing (${problems.length}${blockers ? `, ${blockers} stopped part of the test` : ""}):`];
-  for (const p of sorted) lines.push(`${indent}${p.severity === "blocker" ? "✖" : "!"} ${p.title}`, `${indent}  ${p.detail}`);
+  for (const p of sorted) lines.push(`${indent}${p.severity === "blocker" ? "✖" : "!"} ${p.title}`, `${indent}  ${p.detail}`, ...(p.items ?? []).map((i) => `${indent}    - ${i}`));
   return lines;
 }
 
@@ -90,7 +90,7 @@ export function runMarkdown(results: RunResult[]): string {
     const problems = [...(a.problems ?? [])].sort((x, y) => (x.severity === y.severity ? 0 : x.severity === "blocker" ? -1 : 1));
     if (problems.length) {
       lines.push(`> [!${problems.some((p) => p.severity === "blocker") ? "CAUTION" : "WARNING"}]`, `> **Problems during testing**`);
-      for (const p of problems) lines.push(`> - ${p.severity === "blocker" ? "✖" : "⚠️"} **${p.title}.** ${p.detail}`);
+      for (const p of problems) lines.push(`> - ${p.severity === "blocker" ? "✖" : "⚠️"} **${p.title}.** ${p.detail}`, ...(p.items ?? []).map((i) => `>   - ${i}`));
       lines.push("");
     }
     lines.push("| Check | Baseline | Candidate | Change (95% CI) | Noise | |");

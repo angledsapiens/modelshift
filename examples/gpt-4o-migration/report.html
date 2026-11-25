@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Model migration report</title>
+<meta name="description" content="openai:gpt-4o-mini-2024-07-18 → openai:gpt-6-luna">
+<style>
+:root{--bg:#fbfaf8;--card:#fff;--fg:#1d1c1a;--muted:#6b6862;--line:#e6e2db;--ok:#1f7a4d;--ok-bg:#e5f3eb;--warn:#8a5a00;--warn-bg:#fbf0d9;--bad:#b42318;--bad-bg:#fbe7e4;--accent:#3d5afe;--code:#f3f1ec;--worse:rgba(180,35,24,.07);--noise:rgba(107,104,98,.22)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151413;--card:#1e1d1b;--fg:#ecebe8;--muted:#a19d96;--line:#34322e;--ok:#5fd39a;--ok-bg:#16301f;--warn:#f0c060;--warn-bg:#352a10;--bad:#ff8a7a;--bad-bg:#3a1713;--accent:#8c9eff;--code:#262421;--worse:rgba(255,138,122,.09);--noise:rgba(161,157,150,.28)}}
+:root[data-theme="dark"]{--bg:#151413;--card:#1e1d1b;--fg:#ecebe8;--muted:#a19d96;--line:#34322e;--ok:#5fd39a;--ok-bg:#16301f;--warn:#f0c060;--warn-bg:#352a10;--bad:#ff8a7a;--bad-bg:#3a1713;--accent:#8c9eff;--code:#262421;--worse:rgba(255,138,122,.09);--noise:rgba(161,157,150,.28)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:32px 16px 64px}
+header h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.models{font-size:17px;margin:6px 0 2px}.models code{font-size:15px}
+h2{font-size:20px;margin:40px 0 12px;padding-top:12px;border-top:1px solid var(--line)}
+h3{font-size:16px;margin:28px 0 10px}
+h4{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 6px;font-weight:600}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em;background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+.muted{color:var(--muted)}.small{font-size:12.5px}
+.verdict{border-radius:12px;padding:18px 20px;margin:20px 0 12px;border:1px solid var(--line)}
+.verdict.ok{background:var(--ok-bg);border-color:var(--ok)}.verdict.warn{background:var(--warn-bg);border-color:var(--warn)}.verdict.bad{background:var(--bad-bg);border-color:var(--bad)}
+.v-label{font-size:22px;font-weight:700}.verdict.ok .v-label{color:var(--ok)}.verdict.warn .v-label{color:var(--warn)}.verdict.bad .v-label{color:var(--bad)}
+.v-meta{margin-top:4px;font-size:13.5px}.v-blurb{margin-top:6px;font-size:13.5px;color:var(--muted)}
+.reasons{padding-left:20px;margin:8px 0}.reasons li{margin:4px 0}
+.problems{border-radius:10px;padding:12px 16px;margin:12px 0;border:1px solid}.problems.bad{background:var(--bad-bg);border-color:var(--bad)}.problems.warn{background:var(--warn-bg);border-color:var(--warn)}
+.problems ul.items{margin:6px 0 2px;padding-left:20px}.problems ul.items li{margin:3px 0}
+.p-title{font-weight:700}.problems.bad .p-title{color:var(--bad)}.problems.warn .p-title{color:var(--warn)}
+.problems ul{padding-left:18px;margin:8px 0 0}.problems li{margin:6px 0}
+.scroll{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+th{font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.bad-text{color:var(--bad);font-weight:600}
+svg.ci .worse{fill:var(--worse)}svg.ci .noise{fill:var(--noise)}svg.ci .zero{stroke:var(--muted);stroke-width:1}
+svg.ci line.ci-neutral{stroke:var(--fg);stroke-width:2}svg.ci circle.ci-neutral{fill:var(--fg)}
+svg.ci line.ci-bad{stroke:var(--bad);stroke-width:2.5}svg.ci circle.ci-bad{fill:var(--bad)}
+pre{margin:0;white-space:pre-wrap;word-break:break-word;font:12.5px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--code);padding:10px;border-radius:8px;max-height:320px;overflow:auto}
+.example{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0}
+.pair,.io{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}.io{grid-template-columns:1fr 1fr 1fr}
+details.sample{background:var(--card);border:1px solid var(--line);border-radius:10px;margin:6px 0;padding:8px 12px}
+details.sample.changed{border-left:3px solid var(--warn)}
+details.sample summary{cursor:pointer;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.preview{flex:1 1 200px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.io{padding:10px 0 4px}
+footer{margin-top:48px;font-size:12.5px;color:var(--muted)}
+a{color:var(--accent)}
+@media (max-width:720px){.pair,.io{grid-template-columns:1fr}main{padding:20px 16px 48px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="muted small">modelshift migration report</div>
+  <h1>Model migration report</h1>
+  <div class="models"><code>openai:gpt-4o-mini-2024-07-18</code> → <code>openai:gpt-6-luna</code></div>
+  <div class="muted small">Run 2026-11-25T17:38:57.310Z · report 2026-11-25T17:38:57.374Z · modelshift 0.1.1</div>
+</header>
+
+<section id="c0">
+  
+  <div class="verdict warn">
+    <div class="v-label">Review before switching</div>
+    <div class="v-meta">Confidence: <strong>medium</strong> · 20 samples × 3 repeats · never a guarantee</div>
+    <div class="v-blurb">Nothing failed outright, but something needs a human look.</div>
+  </div>
+  <ul class="reasons"><li>semantic: 0.98 → 0.92 (95% CI of change -0.100 to -0.034). Review examples.</li><li>behaviour drift: outputs are less similar to the baseline (0.71) than the baseline is to itself (0.93). Review examples.</li></ul>
+  <div class="problems warn" role="alert">
+    <div class="p-title">Problems during testing (1)</div>
+    <ul><li><span class="pill warn">Warning</span> <strong>2 settings had to change for the candidate model: your code will need these changes too.</strong> openai:gpt-6-luna rejected these settings, so modelshift changed the request and tested it anyway. The results show the candidate with these changes applied.<ul class="items"><li>Rejects temperature 0, so the model&#39;s default temperature was used. Remove or change temperature in your code; answers may vary more from run to run. (60 of 60 calls)</li><li>Rejects function tools on Chat Completions at its default reasoning effort, so reasoning_effort &quot;none&quot; was sent for requests with tools. Your code needs that setting, or a move to the Responses API (where the model may answer differently: test that separately). (9 of 60 calls)</li></ul></li></ul>
+  </div>
+  <p class="small">Baseline served as: <code>gpt-4o-mini-2024-07-18</code> <span class="muted">(requested <code>openai:gpt-4o-mini-2024-07-18</code>)</span><br>Candidate served as: <code>gpt-6-luna</code> <span class="muted">(requested <code>openai:gpt-6-luna</code>)</span></p>
+  <h3>Checks</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Check</th><th class="num">Baseline</th><th class="num">Candidate</th><th class="num">Change (95% CI)</th><th>Change vs noise <span class="muted small">shaded = worse side</span></th><th class="num">Noise</th><th class="num">n</th><th></th></tr></thead>
+    <tbody><tr>
+  <td><strong>Call errors</strong><div class="muted small">Share of calls that failed (HTTP error, model not found, timeout).</div></td>
+  <td class="num">0.0%</td>
+  <td class="num">0.0%</td>
+  <td class="num">+0.0%<div class="muted small">+0.0% to +0.0%</div></td>
+  <td><svg class="ci" viewBox="0 0 180 22" width="180" height="22" role="img" aria-label="Change +0.0%, 95% CI +0.0% to +0.0%, noise ±0.0%">
+  <rect class="worse" x="90" y="0" width="90" height="22"/>
+  <rect class="noise" x="90" y="3" width="1" height="16"/>
+  <line class="zero" x1="90" x2="90" y1="0" y2="22"/>
+  <line class="ci-neutral" x1="90" x2="90" y1="11" y2="11"/>
+  <circle class="ci-neutral" cx="90" cy="11" r="3.5"/>
+</svg></td>
+  <td class="num">±0.0%</td>
+  <td class="num">20</td>
+  <td><span class="pill ok">ok</span></td>
+</tr>
+<tr>
+  <td><strong>Valid JSON</strong><div class="muted small">Output parses as JSON (where the baseline returns JSON).</div></td>
+  <td class="num">100.0%</td>
+  <td class="num">100.0%</td>
+  <td class="num">+0.0%<div class="muted small">+0.0% to +0.0%</div></td>
+  <td><svg class="ci" viewBox="0 0 180 22" width="180" height="22" role="img" aria-label="Change +0.0%, 95% CI +0.0% to +0.0%, noise ±0.0%">
+  <rect class="worse" x="0" y="0" width="90" height="22"/>
+  <rect class="noise" x="90" y="3" width="1" height="16"/>
+  <line class="zero" x1="90" x2="90" y1="0" y2="22"/>
+  <line class="ci-neutral" x1="90" x2="90" y1="11" y2="11"/>
+  <circle class="ci-neutral" cx="90" cy="11" r="3.5"/>
+</svg></td>
+  <td class="num">±0.0%</td>
+  <td class="num">3</td>
+  <td><span class="pill ok">ok</span></td>
+</tr>
+<tr>
+  <td><strong>Same JSON keys</strong><div class="muted small">JSON top-level keys match the baseline&#39;s usual keys.</div></td>
+  <td class="num">100.0%</td>
+  <td class="num">100.0%</td>
+  <td class="num">+0.0%<div class="muted small">+0.0% to +0.0%</div></td>
+  <td><svg class="ci" viewBox="0 0 180 22" width="180" height="22" role="img" aria-label="Change +0.0%, 95% CI +0.0% to +0.0%, noise ±0.0%">
+  <rect class="worse" x="0" y="0" width="90" height="22"/>
+  <rect class="noise" x="90" y="3" width="1" height="16"/>
+  <line class="zero" x1="90" x2="90" y1="0" y2="22"/>
+  <line class="ci-neutral" x1="90" x2="90" y1="11" y2="11"/>
+  <circle class="ci-neutral" cx="90" cy="11" r="3.5"/>
+</svg></td>
+  <td class="num">±0.0%</td>
+  <td class="num">3</td>
+  <td><span class="pill ok">ok</span></td>
+</tr>
+<tr>
+  <td><strong>Same tool calls</strong><div class="muted small">Calls the same tools as the baseline usually does.</div></td>
+  <td class="num">100.0%</td>
+  <td class="num">100.0%</td>
+  <td class="num">+0.0%<div class="muted small">+0.0% to +0.0%</div></td>
+  <td><svg class="ci" viewBox="0 0 180 22" width="180" height="22" role="img" aria-label="Change +0.0%, 95% CI +0.0% to +0.0%, noise ±0.0%">
+  <rect class="worse" x="0" y="0" width="90" height="22"/>
+  <rect class="noise" x="90" y="3" width="1" height="16"/>
+  <line class="zero" x1="90" x2="90" y1="0" y2="22"/>
+  <line class="ci-neutral" x1="90" x2="90" y1="11" y2="11"/>
+  <circle class="ci-neutral" cx="90" cy="11" r="3.5"/>
+</svg></td>
+  <td class="num">±0.0%</td>
+  <td class="num">3</td>
+  <td><span class="pill ok">ok</span></td>
+</tr>
+<tr>
+  <td><strong>Refusals</strong><div class="muted small">Output looks like a refusal.</div></td>
+  <td class="num">0.0%</td>
+  <td class="num">0.0%</td>
+  <td class="num">+0.0%<div class="muted small">+0.0% to +0.0%</div></td>
+  <td><svg class="ci" viewBox="0 0 180 22" width="180" height="22" role="img" aria-label="Change +0.0%, 95% CI +0.0% to +0.0%, noise ±0.0%">
+  <rect class="worse" x="90" y="0" width="90" height="22"/>
+  <rect class="noise" x="90" y="3" width="1" height="16"/>
+  <line class="zero" x1="90" x2="90" y1="0" y2="22"/>
+  <line class="ci-neutral" x1="90" x2="90" y1="11" y2="11"/>
+  <circle class="ci-neutral" cx="90" cy="11" r="3.5"/>
+</svg></td>
+  <td class="num">±0.0%</td>
+  <td class="num">20</td>
+  <td><span class="pill ok">ok</span></td>
+</tr>
+<tr>
+  <td><strong>Your expected outputs</strong><div class="muted small">Passes the sample&#39;s own expected-output rules (expect.match / notMatch / json).</div></td>
+  <td class="num">100.0%</td>
+  <td class="num">100.0%</td>
+  <td class="num">+0.0%<div class="muted small">+0.0% to +0.0%</div></td>
+  <td><svg class="ci" viewBox="0 0 180 22" width="180" height="22" role="img" aria-label="Change +0.0%, 95% CI +0.0% to +0.0%, noise ±0.0%">
+  <rect class="worse" x="0" y="0" width="90" height="22"/>
+  <rect class="noise" x="90" y="3" width="1" height="16"/>
+  <line class="zero" x1="90" x2="90" y1="0" y2="22"/>
+  <line class="ci-neutral" x1="90" x2="90" y1="11" y2="11"/>
+  <circle class="ci-neutral" cx="90" cy="11" r="3.5"/>
+</svg></td>
+  <td class="num">±0.0%</td>
+  <td class="num">20</td>
+  <td><span class="pill ok">ok</span></td>
+</tr>
+<tr>
+  <td><strong>semantic</strong><div class="muted small">Meaning-based similarity (openai:text-embedding-3-small embeddings) of new answers to old ones, against the old model&#39;s similarity to itself. A review signal: flagged when reliably more than 0.02 lower.</div></td>
+  <td class="num">98.3%</td>
+  <td class="num">91.7%</td>
+  <td class="num">-6.6%<div class="muted small">-10.0% to -3.4%</div></td>
+  <td><svg class="ci" viewBox="0 0 180 22" width="180" height="22" role="img" aria-label="Change -6.6%, 95% CI -10.0% to -3.4%, noise ±0.0%">
+  <rect class="worse" x="0" y="0" width="90" height="22"/>
+  <rect class="noise" x="90" y="3" width="1" height="16"/>
+  <line class="zero" x1="90" x2="90" y1="0" y2="22"/>
+  <line class="ci-bad" x1="17.264675690226312" x2="65.02906951578949" y1="11" y2="11"/>
+  <circle class="ci-bad" cx="41.955665878651914" cy="11" r="3.5"/>
+</svg></td>
+  <td class="num">±0.0%</td>
+  <td class="num">20</td>
+  <td><span class="pill warn">review</span></td>
+</tr></tbody>
+  </table></div>
+  <h3>Performance</h3>
+  <div class="scroll"><table class="perf"><thead><tr><th></th><th>Baseline</th><th>Candidate</th></tr></thead>
+  <tbody><tr><td>Median latency</td><td>1159 ms</td><td>1299 ms</td></tr><tr><td>Median output tokens</td><td>40.5</td><td>67.5</td></tr><tr><td>Answer similarity (word overlap)</td><td>0.93 vs itself</td><td>0.71 vs baseline ⚠</td></tr></tbody></table></div>
+  
+  <h3>Every sample <span class="muted small">(changed ones are open; first answer of each model shown)</span></h3>
+  <details class="sample">
+  <summary><code>support-refund</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Hi, my tent from order NW-48213 arrived with a broken pole 5 days ago. Can I get my money back?</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Hi, my tent from order NW-48213 arrived with a broken pole 5 days ago. Can I get my money back?</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>I&#39;m sorry to hear about the broken pole in your tent from order NW-48213. Since it has been 5 days since delivery, you are still within the 30-day refund window. I can assist you with the refund process. Would you like to proceed?</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>Yes—your order NW-48213 arrived only 5 days ago, so it’s within our 30-day refund window. I can help you start a refund for the tent with the broken pole.</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>support-out-of-policy</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Order NW-11872: my jacket&#39;s zip broke. I bought it 4 months ago. I want a refund.</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Order NW-11872: my jacket&#39;s zip broke. I bought it 4 months ago. I want a refund.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>I understand you&#39;re having an issue with your jacket from order NW-11872. Unfortunately, since it&#39;s been 4 months, we can&#39;t process a refund. However, we can offer a repair for the broken zip. Would you like to proceed with that?</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>Sorry the zip broke on your jacket, and I understand you’d prefer a refund. For order **NW-11872**, refunds are available within 30 days of delivery, so after four months we can’t offer a refund. We can help arrange a repair instead.</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>extract-invoice</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">INVOICE #INV-2291 from Brightline Studio Ltd, issued 3 March 2026. Design services: GBP 1,200.00. VAT: GBP 49.</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>INVOICE #INV-2291 from Brightline Studio Ltd, issued 3 March 2026. Design services: GBP 1,200.00. VAT: GBP 49.50. Amount due: GBP 1,249.50.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>{
+  &quot;vendor&quot;: &quot;Brightline Studio Ltd&quot;,
+  &quot;invoice_number&quot;: &quot;INV-2291&quot;,
+  &quot;date&quot;: &quot;2026-03-03&quot;,
+  &quot;total&quot;: 1249.50,
+  &quot;currency&quot;: &quot;GBP&quot;
+}</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>{&quot;vendor&quot;:&quot;Brightline Studio Ltd&quot;,&quot;invoice_number&quot;:&quot;INV-2291&quot;,&quot;date&quot;:&quot;2026-03-03&quot;,&quot;total&quot;:1249.50,&quot;currency&quot;:&quot;GBP&quot;}</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>extract-contact</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Thanks again for the call.
+
+Best,
+Priya Raman
+Head of Procurement | Castell Foods
++44 20 7946 0123</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Thanks again for the call.
+
+Best,
+Priya Raman
+Head of Procurement | Castell Foods
++44 20 7946 0123</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>{
+  &quot;name&quot;: &quot;Priya Raman&quot;,
+  &quot;title&quot;: &quot;Head of Procurement&quot;,
+  &quot;company&quot;: &quot;Castell Foods&quot;,
+  &quot;phone&quot;: &quot;+44 20 7946 0123&quot;,
+  &quot;email&quot;: null
+}</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>{&quot;name&quot;:&quot;Priya Raman&quot;,&quot;title&quot;:&quot;Head of Procurement&quot;,&quot;company&quot;:&quot;Castell Foods&quot;,&quot;phone&quot;:&quot;+44 20 7946 0123&quot;,&quot;email&quot;:null}</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>extract-dates</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">List every date mentioned below as a JSON object {&quot;dates&quot;: [...]}, each in YYYY-MM-DD format, in the order the</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>List every date mentioned below as a JSON object {&quot;dates&quot;: [...]}, each in YYYY-MM-DD format, in the order they appear. Text: The contract starts on 1 April 2026, the first review is due 30 June 2026 and it ends on 31 March 2027.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>{
+  &quot;dates&quot;: [
+    &quot;2026-04-01&quot;,
+    &quot;2026-06-30&quot;,
+    &quot;2027-03-31&quot;
+  ]
+}</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>{&quot;dates&quot;:[&quot;2026-04-01&quot;,&quot;2026-06-30&quot;,&quot;2027-03-31&quot;]}</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>classify-sentiment</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Delivery was quick but the blender stopped working after two uses and support never replied.</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Delivery was quick but the blender stopped working after two uses and support never replied.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>negative</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>negative</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>classify-intent</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">I changed my phone and now I can&#39;t get the 2FA code to log in.</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>I changed my phone and now I can&#39;t get the 2FA code to log in.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>account</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>account</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>classify-priority</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Checkout fails with error 500 for every customer since 09:10.</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Checkout fails with error 500 for every customer since 09:10.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>P1</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>P1</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>tool-weather</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">What&#39;s the weather in Paris right now? I prefer Celsius.</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>What&#39;s the weather in Paris right now? I prefer Celsius.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>get_weather({&quot;city&quot;:&quot;Paris&quot;,&quot;unit&quot;:&quot;celsius&quot;})</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>get_weather({&quot;city&quot;:&quot;Paris&quot;,&quot;unit&quot;:&quot;celsius&quot;})</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>tool-order-lookup</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Where is my order NW-55120?</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Where is my order NW-55120?</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>lookup_order({&quot;order_id&quot;:&quot;NW-55120&quot;})</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>lookup_order({&quot;order_id&quot;:&quot;NW-55120&quot;})</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>tool-not-needed</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">What are your opening hours? Our FAQ says Monday to Friday, 9am to 5pm.</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>What are your opening hours? Our FAQ says Monday to Friday, 9am to 5pm.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>Our opening hours are indeed Monday to Friday, from 9 AM to 5 PM. If you have any specific questions or need assistance during those hours, feel free to ask!</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>We’re open Monday to Friday, 9am to 5pm.</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>summarize-bullets</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Summarise this in exactly 3 bullet points starting with &#39;- &#39;, and nothing else:
+
+The quarterly review found re</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Summarise this in exactly 3 bullet points starting with &#39;- &#39;, and nothing else:
+
+The quarterly review found revenue grew 12% year on year, driven mainly by the new subscription tier. Costs rose 8%, mostly from cloud hosting after the migration. Customer churn fell from 4.1% to 3.2%. The board approved hiring two more support staff and asked for a pricing review before the summer.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>- Revenue increased by 12% year on year, primarily due to the new subscription tier.  
+- Costs rose by 8%, largely attributed to cloud hosting expenses following the migration.  
+- Customer churn decreased from 4.1% to 3.2%, and the board approved hiring two additional support staff while requesting a pricing review before summer.  </pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>- Revenue grew 12% year over year, driven mainly by the new subscription tier.
+- Costs rose 8%, mostly due to cloud hosting after the migration, while customer churn fell from 4.1% to 3.2%.
+- The board approved hiring two additional support staff and requested a pricing review before the summer.</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>rewrite-formal</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Rewrite this as a polite, formal email to a supplier, under 120 words. Keep the delivery date. Text: hey, the </span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Rewrite this as a polite, formal email to a supplier, under 120 words. Keep the delivery date. Text: hey, the 40 chairs u promised still aren&#39;t here. we need them by friday 12 june or we cancel.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>Subject: Urgent: Delivery Status of Chairs
+
+Dear [Supplier&#39;s Name],
+
+I hope this message finds you well. I am writing to inquire about the status of the 40 chairs we ordered, as they have not yet arrived. We kindly request that they be delivered by Friday, June 12, as this is crucial for our upcoming event. 
+
+If we do not receive the chairs by this date, we may have to reconsider our order. 
+
+Thank you for your attention to this matter. I look forward to your prompt response.
+
+Best regards,  
+[Your Name]  
+[Your Position]  
+[Your Company]  
+[Your Contact Information]  </pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>**Subject: Delivery of 40 Chairs**
+
+Dear [Supplier],
+
+I’m writing to follow up on the 40 chairs you committed to deliver. Please ensure they arrive by Friday, 12 June. If they are not delivered by then, we will need to cancel the order.
+
+Thank you for your attention to this matter.
+
+Kind regards,  
+[Your Name]</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>translate-es</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Your order has shipped and should arrive within three working days.</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Your order has shipped and should arrive within three working days.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>Su pedido ha sido enviado y debería llegar en un plazo de tres días hábiles.</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>Su pedido ha sido enviado y debería llegar en un plazo de tres días hábiles.</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>sql-query</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Tables: orders(id, customer_id, total, created_at), customers(id, name, country). Total revenue per country in</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Tables: orders(id, customer_id, total, created_at), customers(id, name, country). Total revenue per country in 2026, highest first.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>```sql
+SELECT c.country, SUM(o.total) AS total_revenue
+FROM orders o
+JOIN customers c ON o.customer_id = c.id
+WHERE EXTRACT(YEAR FROM o.created_at) = 2026
+GROUP BY c.country
+ORDER BY total_revenue DESC;
+```</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>```sql
+SELECT
+    c.country,
+    SUM(o.total) AS total_revenue
+FROM orders AS o
+JOIN customers AS c ON c.id = o.customer_id
+WHERE o.created_at &gt;= DATE &#39;2026-01-01&#39;
+  AND o.created_at &lt; DATE &#39;2027-01-01&#39;
+GROUP BY c.country
+ORDER BY total_revenue DESC;
+```</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>code-python</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Write a Python function slugify(title: str) -&gt; str that lowercases, replaces runs of non-alphanumeric characte</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Write a Python function slugify(title: str) -&gt; str that lowercases, replaces runs of non-alphanumeric characters with a single hyphen and strips leading/trailing hyphens. Only the code, in one ```python block.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>```python
+import re
+
+def slugify(title: str) -&gt; str:
+    # Lowercase the title
+    title = title.lower()
+    # Replace runs of non-alphanumeric characters with a single hyphen
+    title = re.sub(r&#39;[^a-z0-9]+&#39;, &#39;-&#39;, title)
+    # Strip leading/trailing hyphens
+    title = title.strip(&#39;-&#39;)
+    return title
+```</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>```python
+def slugify(title: str) -&gt; str:
+    parts = []
+    in_separator = False
+
+    for char in title.lower():
+        if char.isalnum():
+            parts.append(char)
+            in_separator = False
+        elif parts and not in_separator:
+            parts.append(&quot;-&quot;)
+            in_separator = True
+
+    return &quot;&quot;.join(parts).rstrip(&quot;-&quot;)
+```</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>markdown-table</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">Make a markdown table with columns Plan, Price and Seats for: Starter £9 1 seat, Team £29 5 seats, Business £9</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>Make a markdown table with columns Plan, Price and Seats for: Starter £9 1 seat, Team £29 5 seats, Business £99 25 seats. Only the table.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>| Plan     | Price | Seats |
+|----------|-------|-------|
+| Starter  | £9    | 1     |
+| Team     | £29   | 5     |
+| Business | £99   | 25    |</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>| Plan | Price | Seats |
+|---|---:|---:|
+| Starter | £9 | 1 seat |
+| Team | £29 | 5 seats |
+| Business | £99 | 25 seats |</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>date-reasoning</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">A 14-day free trial starts on Monday 23 November 2026. On what date does it end if the last day of the trial i</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>A 14-day free trial starts on Monday 23 November 2026. On what date does it end if the last day of the trial is day 14? Answer with the date only, like 1 January 2026.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>6 December 2026</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>6 December 2026</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>word-limit</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">In one sentence of at most 25 words, explain what an API rate limit is to a non-technical customer.</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>In one sentence of at most 25 words, explain what an API rate limit is to a non-technical customer.</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>An API rate limit is a restriction on how many requests you can make to a service in a specific time period to ensure fair usage.</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>An API rate limit caps how many requests an app can make in a set time, helping keep the service reliable for everyone.</pre></div>
+  </div>
+</details>
+<details class="sample">
+  <summary><code>borderline-lockout</code> <span class="pill ok">expected 100% (was 100%)</span><span class="muted small preview">I&#39;m locked out of my own house and the locksmith can&#39;t come until tomorrow. What are my options tonight?</span></summary>
+  <div class="io">
+    <div><h4>Input</h4><pre>I&#39;m locked out of my own house and the locksmith can&#39;t come until tomorrow. What are my options tonight?</pre></div>
+    <div><h4>Baseline <span class="muted small">openai:gpt-4o-mini-2024-07-18</span></h4><pre>If you&#39;re locked out of your house and can&#39;t get a locksmith until tomorrow, here are some options you might consider:
+
+1. **Check for Open Windows or Doors**: If you have any windows or doors that might be unlocked, check those first. Be cautious and ensure that you can safely access them.
+
+2. **Ask a Neighbor for Help**: If you have a trusted neighbor, see if they can help you out. They might have tools or suggestions, or they might even have a spare key if you’ve given one to them.
+
+3. **Stay with Friends or Family**: If possible, consider staying with a friend or family member for the night until you can get back into your house.
+
+4. **Emergency Services**: In some cases, local emergency services may be able to assist you, especially if there are safety concerns (like a pet inside or a child).
+
+5. **Temporary Accommodations**: If you can&#39;t stay with anyone, consider booking a hotel or finding a short-term rental for the night.
+
+6. **Call a Different Locksmith**: If you haven&#39;t already, you might try calling other locksmiths to see if anyone can come out sooner.
+
+7. **Social Media or Community Groups**: Sometimes, local community groups on social media can provide quick help or suggestions.
+
+8. **Wait It Out**: If none of the above options work, you may need to wait until the locksmith arrives in the morning. Make sure you have a safe place to wait, and keep your phone charged.
+
+Remember to stay safe and avoid any actions that could cause damage to your property or put you at risk.</pre></div>
+    <div><h4>Candidate <span class="muted small">openai:gpt-6-luna</span></h4><pre>For tonight, try the safest options first:
+
+- **Call someone with a spare key**—a trusted neighbor, family member, housemate, or property manager.
+- **If you rent or live in a managed building, call the landlord’s or building’s emergency-maintenance line.** They may have an after-hours contact.
+- **Call another 24-hour locksmith** and ask for the total call-out and labor cost before agreeing; be ready to show proof you live there.
+- **Stay with a friend or book somewhere nearby** if nobody can get you in safely tonight.
+- **Check for an already-unlocked entrance only if it’s safely accessible.** Don’t climb, force a door, or break a window—you could get hurt, trigger an alarm, or cause expensive damage.
+
+If a child or vulnerable person is inside, or there’s a medical issue, fire risk, or appliance left on, **call emergency services now** rather than waiting for a locksmith.</pre></div>
+  </div>
+</details>
+  
+</section>
+<footer>
+  <p><strong>How to read this.</strong> Each sample was sent to the baseline 3 time(s); how much the baseline disagrees with itself is the <em>noise</em>.
+  A check is marked <em>worse</em> only when the 95% confidence interval of the change lies entirely on the worse side <em>and</em> the change is larger than that noise.
+  "Likely safe" is a statistical statement about these samples, never a guarantee. Outputs may contain data from your samples: review before sharing outside your team.</p>
+  <p>Generated by <a href="https://github.com/angledsapiens/modelshift">modelshift</a>.</p>
+</footer>
+</main>
+</body>
+</html>

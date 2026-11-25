@@ -130,7 +130,7 @@ function problemsBox(problems: Problem[]): string {
   const blockers = problems.filter((p) => p.severity === "blocker").length;
   return `<div class="problems ${blockers ? "bad" : "warn"}" role="alert">
     <div class="p-title">Problems during testing (${problems.length})${blockers ? ` · ${blockers} stopped part of the test, so the verdict can't be "safe"` : ""}</div>
-    <ul>${sorted.map((p) => `<li><span class="pill ${p.severity === "blocker" ? "bad" : "warn"}">${p.severity === "blocker" ? "Blocked" : "Warning"}</span> <strong>${esc(p.title)}.</strong> ${esc(p.detail)}</li>`).join("")}</ul>
+    <ul>${sorted.map((p) => `<li><span class="pill ${p.severity === "blocker" ? "bad" : "warn"}">${p.severity === "blocker" ? "Blocked" : "Warning"}</span> <strong>${esc(p.title)}.</strong> ${esc(p.detail)}${p.items?.length ? `<ul class="items">${p.items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : ""}</li>`).join("")}</ul>
   </div>`;
 }
 
@@ -215,6 +215,7 @@ code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em;
 .v-meta{margin-top:4px;font-size:13.5px}.v-blurb{margin-top:6px;font-size:13.5px;color:var(--muted)}
 .reasons{padding-left:20px;margin:8px 0}.reasons li{margin:4px 0}
 .problems{border-radius:10px;padding:12px 16px;margin:12px 0;border:1px solid}.problems.bad{background:var(--bad-bg);border-color:var(--bad)}.problems.warn{background:var(--warn-bg);border-color:var(--warn)}
+.problems ul.items{margin:6px 0 2px;padding-left:20px}.problems ul.items li{margin:3px 0}
 .p-title{font-weight:700}.problems.bad .p-title{color:var(--bad)}.problems.warn .p-title{color:var(--warn)}
 .problems ul{padding-left:18px;margin:8px 0 0}.problems li{margin:6px 0}
 .scroll{overflow-x:auto;background:var(--card);border:1px solid var(--line);border-radius:10px}
