@@ -2,7 +2,8 @@
  * A small YAML reader for config files (no dependencies). Covers what eval configs use:
  * block mappings and sequences, plain / quoted scalars, block scalars (| and >, with - / +),
  * flow collections ([a, b] and {a: 1}), comments and multi-line plain scalars.
- * Not supported (throws a clear error): anchors, aliases, merge keys, tags, multiple documents.
+ * anchors (&name), aliases (*name) and merge keys (<<: *name).
+ * Not supported (throws a clear error): tags (!!str ...), complex keys, multiple documents.
  */
 
 export class YamlError extends Error {}
@@ -72,8 +73,17 @@ function stripComment(s: string): string {
 }
 
 function unsupported(text: string, no: number): void {
-  if (/^[&*!]/.test(text) || /^<<\s*:/.test(text)) throw new YamlError(`line ${no}: YAML anchors, aliases, merge keys and tags aren't supported; expand them or use a JSON config`);
+  if (/^!/.test(text)) throw new YamlError(`line ${no}: YAML tags (like !!str) aren't supported; remove them or use a JSON config`);
 }
+
+/** "&name rest" -> anchor + rest. */
+function takeAnchor(text: string): { anchor?: string; text: string } {
+  const m = /^&([^\s,\[\]{}]+)(?:\s+|$)([\s\S]*)$/.exec(text);
+  return m ? { anchor: m[1], text: m[2] } : { text };
+}
+
+const ALIAS = /^\*([^\s,\[\]{}]+)$/;
+const clone = <T>(v: T): T => (v === null || typeof v !== "object" ? v : JSON.parse(JSON.stringify(v)));
 
 function plainScalar(s: string): unknown {
   const t = s.trim();
@@ -94,7 +104,19 @@ function unquoteDouble(body: string): string {
 
 class Parser {
   i = 0;
+  anchors = new Map<string, unknown>();
   constructor(private lines: Line[]) {}
+
+  alias(name: string, no: number): unknown {
+    if (!this.anchors.has(name)) throw new YamlError(`line ${no}: unknown alias *${name}`);
+    return clone(this.anchors.get(name));
+  }
+
+  /** An inline value that may be an alias. */
+  inline(text: string, parent: number, no: number): unknown {
+    const a = ALIAS.exec(stripComment(text.trim()));
+    return a ? this.alias(a[1], no) : this.value(text, parent, no);
+  }
 
   skipBlank(): void {
     while (this.i < this.lines.length && isBlank(this.lines[this.i])) this.i++;
@@ -121,14 +143,29 @@ class Parser {
     if (!l || l.indent < min) return null;
     if (/^---(\s|$)/.test(l.text) && l.indent === 0) return null;
     unsupported(l.text, l.no);
+    const { anchor, text } = takeAnchor(l.text);
+    let v: unknown;
+    if (anchor !== undefined) {
+      if (stripComment(text) === "") {
+        this.i++;
+        v = this.node(min);
+      } else {
+        l.indent += l.text.length - text.length;
+        l.text = text;
+        v = this.node(l.indent);
+      }
+      this.anchors.set(anchor, v);
+      return v;
+    }
     if (/^-(\s|$)/.test(l.text)) return this.seq(l.indent);
     if (keyColon(l.text) > 0) return this.map(l.indent);
     this.i++;
-    return this.value(l.text, l.indent - 1, l.no);
+    return this.inline(l.text, l.indent - 1, l.no);
   }
 
   map(ind: number): Record<string, unknown> {
     const out: Record<string, unknown> = {};
+    const merges: Record<string, unknown>[] = [];
     for (;;) {
       const l = this.peek();
       if (!l || l.indent !== ind || (ind === 0 && /^---(\s|$)/.test(l.text))) break;
@@ -139,19 +176,32 @@ class Parser {
       }
       unsupported(l.text, l.no);
       const key = String(this.keyOf(l.text.slice(0, c).trim(), l.no));
-      const rest = stripComment(l.text.slice(c + 1).trim());
+      const { anchor, text: restRaw } = takeAnchor(l.text.slice(c + 1).trim());
+      const rest = stripComment(restRaw);
       this.i++;
+      let v: unknown;
       if (rest === "") {
         const n = this.peek();
-        if (n && n.indent > ind) out[key] = this.node(n.indent);
-        else if (n && n.indent === ind && /^-(\s|$)/.test(n.text)) out[key] = this.seq(ind);
-        else out[key] = null;
+        if (n && n.indent > ind) v = this.node(n.indent);
+        else if (n && n.indent === ind && /^-(\s|$)/.test(n.text)) v = this.seq(ind);
+        else v = null;
       } else {
         unsupported(rest, l.no);
-        out[key] = this.value(l.text.slice(c + 1).trim(), ind, l.no);
+        v = this.inline(restRaw, ind, l.no);
       }
+      if (anchor !== undefined) this.anchors.set(anchor, v);
+      if (key === "<<") {
+        for (const m of Array.isArray(v) ? v : [v]) {
+          if (!m || typeof m !== "object" || Array.isArray(m)) throw new YamlError(`line ${l.no}: a merge key (<<) needs a mapping or a list of mappings`);
+          merges.push(m as Record<string, unknown>);
+        }
+      } else out[key] = v;
     }
-    return out;
+    if (!merges.length) return out;
+    // Explicit keys win; among merged mappings, earlier ones win (YAML merge-key rules).
+    const merged: Record<string, unknown> = {};
+    for (const m of [...merges].reverse()) Object.assign(merged, clone(m));
+    return Object.assign(merged, out);
   }
 
   seq(ind: number): unknown[] {
@@ -159,22 +209,26 @@ class Parser {
     for (;;) {
       const l = this.peek();
       if (!l || l.indent !== ind || !/^-(\s|$)/.test(l.text)) break;
-      const content = l.text.slice(1).replace(/^ +/, "");
+      const afterDash = l.text.slice(1).replace(/^ +/, "");
+      const { anchor, text: content } = takeAnchor(afterDash);
       const col = ind + (l.text.length - content.length);
+      let v: unknown;
       if (content === "" || content.startsWith("#")) {
         this.i++;
         const n = this.peek();
-        out.push(n && n.indent > ind ? this.node(n.indent) : null);
+        v = n && n.indent > ind ? this.node(n.indent) : null;
       } else if (/^-(\s|$)/.test(content) || keyColon(content) > 0) {
         // "- key: value" or "- - x": the item is a block node starting at this column.
         l.indent = col;
         l.text = content;
-        out.push(this.node(col));
+        v = this.node(col);
       } else {
         this.i++;
         unsupported(content, l.no);
-        out.push(this.value(content, ind, l.no));
+        v = this.inline(content, ind, l.no);
       }
+      if (anchor !== undefined) this.anchors.set(anchor, v);
+      out.push(v);
     }
     return out;
   }
@@ -286,7 +340,7 @@ class Parser {
       if (!n.text.startsWith("#")) buf += " " + stripComment(n.text.trim());
       this.i++;
     }
-    const fp = new FlowParser(buf, no);
+    const fp = new FlowParser(buf, no, (name) => this.alias(name, no));
     const v = fp.value();
     fp.ws();
     if (fp.pos < buf.length) throw new YamlError(`line ${no}: unexpected "${buf.slice(fp.pos, fp.pos + 20)}" after a flow collection`);
@@ -339,7 +393,7 @@ function balanced(s: string): boolean {
 
 class FlowParser {
   pos = 0;
-  constructor(private s: string, private no: number) {}
+  constructor(private s: string, private no: number, private alias: (name: string) => unknown) {}
 
   ws(): void {
     while (this.pos < this.s.length && /\s/.test(this.s[this.pos])) this.pos++;
@@ -410,7 +464,9 @@ class FlowParser {
       this.pos++;
     }
     const raw = this.s.slice(start, this.pos);
-    if (/^[&*!]/.test(raw.trim())) this.err("anchors, aliases and tags aren't supported");
+    const al = ALIAS.exec(raw.trim());
+    if (al && !isKey) return this.alias(al[1]);
+    if (/^[&!]/.test(raw.trim())) this.err("anchors and tags inside [ ] or { } aren't supported");
     return isKey ? raw.trim() : plainScalar(raw);
   }
 }

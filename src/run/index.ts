@@ -195,7 +195,7 @@ const METRICS: MetricDef[] = [
     direction: "higher-is-better",
     applies: (s) => hasAssertions(s.expect),
     value: (r, { sample }) => {
-      const v = assertionsPass(outputRepr(r), sample.expect);
+      const v = assertionsPass(outputRepr(r), sample.expect, { structured: r.toolCalls.length > 0 });
       return v === undefined ? undefined : v ? 1 : 0;
     },
   },

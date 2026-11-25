@@ -99,9 +99,10 @@ export function containsJson(text: string): boolean {
   return false;
 }
 
-export function assertionsPass(text: string, expect?: Expect): boolean | undefined {
+/** `structured`: the output is tool calls, which count as JSON (as in Promptfoo). */
+export function assertionsPass(text: string, expect?: Expect, opts: { structured?: boolean } = {}): boolean | undefined {
   if (!expect || !hasAssertions(expect)) return undefined;
-  if (expect.json && !isJson(text)) return false;
-  if (expect.containsJson && !containsJson(text)) return false;
+  if (expect.json && !opts.structured && !isJson(text)) return false;
+  if (expect.containsJson && !opts.structured && !containsJson(text)) return false;
   return (expect.match ?? []).every((p) => toRegExp(p).test(text)) && !(expect.notMatch ?? []).some((p) => toRegExp(p).test(text));
 }
