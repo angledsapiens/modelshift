@@ -37,6 +37,8 @@ export interface ChatResponse {
   toolCalls: ToolCall[];
   inputTokens?: number;
   outputTokens?: number;
+  /** Hidden reasoning tokens, included in outputTokens (OpenAI reasoning models). */
+  reasoningTokens?: number;
   latencyMs: number;
   finishReason?: string;
   /** Model the provider reports actually serving the request (may differ from the requested one: redirects/aliases). */
@@ -193,6 +195,7 @@ function openAICompatible(provider: string, model: string, base: string, headers
         toolCalls: (msg.tool_calls ?? []).map((t: any) => ({ name: t.function?.name ?? "", arguments: t.function?.arguments ?? "" })),
         inputTokens: r.json?.usage?.prompt_tokens,
         outputTokens: r.json?.usage?.completion_tokens,
+        reasoningTokens: r.json?.usage?.completion_tokens_details?.reasoning_tokens || undefined,
         latencyMs: r.latencyMs,
         finishReason: choice?.finish_reason,
         servedModel: typeof r.json?.model === "string" ? r.json.model : undefined,

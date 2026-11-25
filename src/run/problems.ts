@@ -106,12 +106,19 @@ export function findProblems(
   // 3. Answers cut off by the token limit look like format or quality failures.
   for (const [label, , rs] of sides) {
     const cut = rs.filter((r) => !r.error && r.finishReason && TRUNCATED.has(r.finishReason));
-    if (cut.length)
-      out.push({
-        severity: "warning",
-        title: `${cut.length} ${label} answer${cut.length > 1 ? "s were" : " was"} cut off by the token limit`,
-        detail: `Cut-off answers can fail JSON or assertion checks for that reason alone. Raise max_tokens in the samples (or the Promptfoo config) and re-run.`,
-      });
+    if (!cut.length) continue;
+    // Reasoning models spend the limit on hidden reasoning first; a small limit then yields an empty answer and no error.
+    const emptyByReasoning = cut.filter((r) => !r.text.trim() && !r.toolCalls.length && (r.reasoningTokens ?? 0) > 0);
+    out.push({
+      severity: "warning",
+      title: emptyByReasoning.length
+        ? `${emptyByReasoning.length} ${label} answer${emptyByReasoning.length > 1 ? "s were" : " was"} empty: hidden reasoning used the whole token limit`
+        : `${cut.length} ${label} answer${cut.length > 1 ? "s were" : " was"} cut off by the token limit`,
+      detail: emptyByReasoning.length
+        ? `The model spent the entire output limit on reasoning before writing anything, so it returned an empty answer with no error. Your app will get the same empty answers at this limit. Raise the limit well above the answer's length (it now covers reasoning too), or, for OpenAI reasoning models, send reasoning_effort "none". Then re-run.` +
+          (cut.length > emptyByReasoning.length ? ` ${cut.length - emptyByReasoning.length} other answer${cut.length - emptyByReasoning.length > 1 ? "s were" : " was"} cut off part-way.` : "")
+        : `Cut-off answers can fail JSON or assertion checks for that reason alone. Raise max_tokens in the samples (or the Promptfoo config) and re-run.`,
+    });
   }
 
   // 4. Judge calls that failed.

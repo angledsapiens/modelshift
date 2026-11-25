@@ -220,6 +220,21 @@ test("request changes show up as a warning that the user's code needs them too",
   assert.deepEqual(p!.items, ["Rejects temperature 0, so the model's default temperature was used. (6 of 6 calls)"]);
 });
 
+test("empty answers caused by hidden reasoning get a specific diagnosis", () => {
+  const samples = jsonSamples(2);
+  const empty = ok("", { finishReason: "length", outputTokens: 10, reasoningTokens: 10 });
+  const runs: SampleRun[] = samples.map((s) => ({ id: s.id, baseline: [ok("{}"), ok("{}")], candidate: [empty, ok("{}", { finishReason: "length" })] }));
+  const a = analyze(samples, runs);
+  const p = a.problems.find((x) => /hidden reasoning/.test(x.title));
+  assert.ok(p, JSON.stringify(a.problems));
+  assert.match(p!.title, /2 candidate answers were empty: hidden reasoning used the whole token limit/);
+  assert.match(p!.detail, /reasoning_effort "none"/);
+  assert.match(p!.detail, /2 other answers were cut off part-way/);
+  // Ordinary truncation keeps the generic message.
+  const plain = analyze(samples, samples.map((s) => ({ id: s.id, baseline: [ok("{}")], candidate: [ok('{"a":', { finishReason: "length" })] })));
+  assert.ok(plain.problems.some((x) => /cut off by the token limit/.test(x.title)));
+});
+
 /* ---------------- analysis */
 
 const ok = (text: string, extra: Partial<ChatResponse> = {}): ChatResponse => ({ text, toolCalls: [], latencyMs: 100, ...extra });

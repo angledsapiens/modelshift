@@ -17,8 +17,12 @@ The requests cover customer support (inside and outside the refund policy), JSON
 
 - **Three code changes are required.** GPT-6 Luna rejects `temperature: 0` (only its default of 1 is allowed) and `max_tokens` (use `max_completion_tokens`), and on Chat Completions it only accepts function tools with `reasoning_effort: "none"`. modelshift applied each change so the model could be tested, and listed them at the top of the report.
 - **Answers stay correct.** Every rule passed on both models, and neither refused anything.
-- **Wording changes noticeably.** The answers are less similar to GPT-4o mini's (0.71) than GPT-4o mini's are to each other (0.93), and the meaning check fell from 98% to 92%. GPT-6 Luna is more direct and terser ("We're open Monday to Friday, 9am to 5pm." instead of a friendly paragraph) and writes British dates. If your product's tone matters, read the examples in the report before switching.
-- **Slightly slower, more tokens.** Median latency rose from 1.16 s to 1.30 s, and output tokens from about 40 to 68, because the count includes hidden reasoning tokens.
+- **Wording changes noticeably.** The answers are less similar to GPT-4o mini's (0.71) than GPT-4o mini's are to each other (0.93), and the meaning check fell from 98% to 92%. GPT-6 Luna is more direct and terser ("We're open Monday to Friday, 9am to 5pm." instead of a friendly paragraph). It also adds formatting GPT-4o mini didn't: in plain-prose replies such as support answers, it used markdown bold (`**NW-48213**`) in 7 of 39 answers and em dashes in 5, against none for GPT-4o mini. Shown in a plain-text chat widget, SMS or email, the asterisks appear literally. If your product's tone or display matters, read the examples in the report before switching.
+- **Slightly slower, more tokens.** Median latency rose from 1.16 s to 1.30 s. GPT-6 Luna wrote about 25% less visible text but billed about twice the output tokens (6,660 against 3,270 in total), because the count includes hidden reasoning.
+
+## Not in this run: empty answers at small token limits
+
+These samples set no token limit. In a separate check, GPT-6 Luna returned an **empty answer with no error** for a one-word classification when `max_completion_tokens` was 5, 10 or 20: hidden reasoning used the whole budget first (`finish_reason: "length"`). It answered at 50 and above, or at any limit with `reasoning_effort: "none"`. GPT-4o mini answered correctly with 5. If your samples carry a small `max_tokens`, modelshift reports these as "empty: hidden reasoning used the whole token limit".
 
 The whole run (120 chat calls plus embeddings) cost a few cents.
 
