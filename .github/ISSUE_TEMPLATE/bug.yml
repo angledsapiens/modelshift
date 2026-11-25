@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in modelshift doesn't work as described.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Remove API keys, private prompts and customer data** from anything you paste here. This repository is public.
+        For a security problem, don't use this form: see SECURITY.md.
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it happen?
+      options:
+        - scan
+        - scan --live / --probe
+        - capture
+        - import promptfoo
+        - run
+        - report (HTML / markdown / JSON)
+        - GitHub Action
+        - MCP server
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: modelshift version
+      description: Output of `npx modelshift --version`, or the action version you use.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Operating system and Node.js version
+      placeholder: macOS 15, Node 22.12
+  - type: textarea
+    id: command
+    attributes:
+      label: Command you ran
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: Paste the output or error message.
+    validations:
+      required: true

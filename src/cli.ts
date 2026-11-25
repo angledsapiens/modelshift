@@ -77,12 +77,39 @@ report options:
 `;
 
 const BOOL_FLAGS = new Set(["--live", "--probe", "--json", "--markdown", "--include-markdown", "--no-redact", "--yes", "--no-cache", "--fail-on-unsafe", "-h", "--help", "-v", "--version"]);
+const VALUE_OPTS = new Set(["--cache-dir", "--calendar", "--concurrency", "--embed", "--fail-on", "--from", "--html", "--judge", "--limit", "--out", "--prices", "--providers", "--repeats", "--samples", "--temperature", "--to", "--today"]);
+
+function closestOption(t: string): string | undefined {
+  const dist = (a: string, b: string) => {
+    const d = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      let prev = d[0];
+      d[0] = i;
+      for (let j = 1; j <= b.length; j++) {
+        const cur = d[j];
+        d[j] = Math.min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+        prev = cur;
+      }
+    }
+    return d[b.length];
+  };
+  let best: string | undefined;
+  let bestD = Infinity;
+  for (const o of [...BOOL_FLAGS, ...VALUE_OPTS]) {
+    if (!o.startsWith("--")) continue;
+    const n = dist(t, o);
+    if (n < bestD) [best, bestD] = [o, n];
+  }
+  return bestD <= Math.max(2, Math.floor(t.length / 4)) ? best : undefined;
+}
 
 export interface Args {
   cmd?: string;
   positional: string[];
   flags: Set<string>;
   opts: Record<string, string>;
+  /** Unknown options and options missing their value. main() refuses to run when this is non-empty. */
+  errors: string[];
   // convenience views used by scan
   path: string;
   live: boolean;
@@ -94,11 +121,27 @@ export function parseArgs(argv: string[]): Args {
   const flags = new Set<string>();
   const opts: Record<string, string> = {};
   const positional: string[] = [];
+  const errors: string[] = [];
   for (let i = 0; i < argv.length; i++) {
-    const t = argv[i];
-    if (BOOL_FLAGS.has(t)) flags.add(t);
-    else if (t.startsWith("-")) opts[t === "-o" ? "--out" : t] = argv[++i] ?? "";
-    else positional.push(t);
+    const raw = argv[i];
+    const eq = raw.startsWith("--") ? raw.indexOf("=") : -1;
+    const t = eq > 0 ? raw.slice(0, eq) : raw;
+    if (BOOL_FLAGS.has(t)) {
+      if (eq > 0) errors.push(`${t} doesn't take a value.`);
+      flags.add(t);
+    } else if (t === "-o" || VALUE_OPTS.has(t)) {
+      const key = t === "-o" ? "--out" : t;
+      const v = eq > 0 ? raw.slice(eq + 1) : argv[i + 1];
+      if (v === undefined || v === "" || (eq < 0 && v.startsWith("-") && !/^-\d/.test(v))) {
+        errors.push(`${t} needs a value.`);
+      } else {
+        opts[key] = v;
+        if (eq < 0) i++;
+      }
+    } else if (t.startsWith("-") && t !== "-") {
+      const near = closestOption(t);
+      errors.push(`Unknown option ${t}.${near ? ` Did you mean ${near}?` : ""} Run modelshift --help for the list.`);
+    } else positional.push(raw);
   }
   const help = flags.has("-h") || flags.has("--help");
   return {
@@ -106,6 +149,7 @@ export function parseArgs(argv: string[]): Args {
     positional: positional.slice(1),
     flags,
     opts,
+    errors,
     path: positional[1] ?? ".",
     live: flags.has("--live") || flags.has("--probe"),
     failOn: opts["--fail-on"],
@@ -225,6 +269,10 @@ function cmdReport(args: Args): number {
 
 async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   const args = parseArgs(argv);
+  if (args.errors.length && args.cmd !== "help") {
+    for (const e of args.errors) err(e);
+    return 1;
+  }
   try {
     return await dispatch(args);
   } catch (e) {

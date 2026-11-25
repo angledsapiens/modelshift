@@ -98,4 +98,21 @@ test("CLI argument parsing", () => {
   assert.equal(a.live, true);
   assert.deepEqual(a.providers, ["deepinfra", "openrouter"]);
   assert.equal(a.failOn, "retiring");
+  assert.deepEqual(a.errors, []);
+});
+
+test("CLI rejects unknown options and missing values instead of ignoring them", () => {
+  const typo = parseArgs(["run", "--fail-on-unsafee", "--from", "openai:gpt-4o"]);
+  assert.match(typo.errors[0], /Unknown option --fail-on-unsafee\. Did you mean --fail-on-unsafe\?/);
+  assert.equal(typo.opts["--from"], "openai:gpt-4o"); // the typo didn't swallow the next option
+  assert.match(parseArgs(["scan", "--format", "markdown"]).errors[0], /Unknown option --format/);
+  assert.match(parseArgs(["run", "--from"]).errors[0], /--from needs a value/);
+  assert.match(parseArgs(["run", "--from", "--to", "x"]).errors[0], /--from needs a value/);
+  assert.match(parseArgs(["scan", "--json=yes"]).errors[0], /--json doesn't take a value/);
+  const eq = parseArgs(["run", "--from=openai:gpt-4o", "--temperature", "-0.5", "-o", "r.json"]);
+  assert.deepEqual(eq.errors, []);
+  assert.equal(eq.opts["--from"], "openai:gpt-4o");
+  assert.equal(eq.opts["--temperature"], "-0.5");
+  assert.equal(eq.opts["--out"], "r.json");
+  assert.equal(parseArgs(["--zzzzzzzzzz"]).errors[0].includes("Did you mean"), false);
 });

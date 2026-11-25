@@ -1,0 +1,49 @@
+# Builds and runs the full test suite on every push and pull request.
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node: [22, 24]
+        include:
+          - os: windows-latest
+            node: 22
+          - os: macos-latest
+            node: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Smoke test the CLI
+        shell: bash
+        run: |
+          node dist/src/bin.js --version
+          node dist/src/bin.js scan test/fixtures/sample-repo --markdown > scan.md || true
+          grep -q "Model retirement check" scan.md
+      - name: The package contains no secrets or stray files
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        run: |
+          npm pack --dry-run --json > pack.json
+          node -e '
+            const files = JSON.parse(require("fs").readFileSync("pack.json","utf8"))[0].files.map(f => f.path);
+            const bad = files.filter(p => !/^(dist\/src\/|data\/|skills\/|README\.md$|LICENSE$|package\.json$)/.test(p) || /\.env/.test(p));
+            if (bad.length) { console.error("Unexpected files in the package:", bad); process.exit(1); }
+            console.log(files.length + " files, all expected");'

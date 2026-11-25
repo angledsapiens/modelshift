@@ -1,5 +1,7 @@
 # modelshift
 
+[![npm](https://img.shields.io/npm/v/modelshift)](https://www.npmjs.com/package/modelshift) [![ci](https://github.com/angledsapiens/modelshift/actions/workflows/ci.yml/badge.svg)](https://github.com/angledsapiens/modelshift/actions/workflows/ci.yml) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 **Know what breaks before your LLM is switched off.**
 
 Model providers retire models on a schedule, and inference hosts sometimes remove or swap models with no notice at all. `modelshift` is a free, open-source command-line tool that:
@@ -735,6 +737,8 @@ Each entry shows the replacement the provider recommends (when there is one), ev
 | `No samples in <file>.` | The samples file is empty or no line could be read. |
 | `This will make N paid API calls. Re-run with --yes to proceed, or lower --repeats / use fewer samples.` | The spend guard: more than 60 calls. Add `--yes` if the plan looks right. |
 | `--fail-on must be one of: retired, retiring, any` | Use one of those three levels. |
+| `Unknown option --x. Did you mean --y?` | A misspelt or unsupported option. modelshift stops rather than ignore it, so a typo such as `--fail-on-unsafee` can't silently switch off a CI gate. Run `modelshift --help` for the list. |
+| `--x needs a value.` | An option such as `--from` or `--samples` was given without a value. Both `--from openai:gpt-4o` and `--from=openai:gpt-4o` work. |
 | `Not a directory: <path>` | `scan` was given a path that isn't a folder. |
 | `No usable requests found in <file> (N lines skipped).` | The log isn't in one of the [accepted formats](#capture-build-a-test-set-from-your-logs). |
 | `Results file not found: ...` / `... is not a modelshift results file.` | `report` needs the JSON written by `run`. |
@@ -912,9 +916,13 @@ Outputs: `status` (`ok` or `flagged`), `markdown` (path to the summary) and, for
 
 ## Contributing
 
-- **Retirement calendar:** spotted a retirement we're missing? Open a pull request that edits [`data/retirements.json`](data/retirements.json) and include the official source URL.
-- **Code:** `npm test` builds and runs the full suite. modelshift has no runtime dependencies, and we'd like to keep it that way.
-- Issues and ideas are welcome on [GitHub](https://github.com/angledsapiens/modelshift/issues).
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) has the details.
+
+- **Retirement calendar:** spotted a retirement we're missing or a wrong date? Use the [retirement report](https://github.com/angledsapiens/modelshift/issues/new?template=retirement.yml) form, or open a pull request that edits [`data/retirements.json`](data/retirements.json) and cites the official source.
+- **Code:** `npm test` builds and runs the full suite, and CI runs it on Linux, Windows and macOS. modelshift has no runtime dependencies, and we'd like to keep it that way.
+- **Sign-off:** sign your commits with `git commit -s` ([Developer Certificate of Origin](https://developercertificate.org/)). There's no contributor licence agreement.
+- **Security problems:** report them privately; see [SECURITY.md](SECURITY.md).
+- Bugs and ideas are welcome as [issues](https://github.com/angledsapiens/modelshift/issues/new/choose).
 
 ## License
 

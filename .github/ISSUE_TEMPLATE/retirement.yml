@@ -1,0 +1,55 @@
+name: Retirement report
+description: A model retirement that's missing from the calendar, or a date that's wrong.
+title: "[calendar] "
+labels: ["calendar"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Calendar entries must come from an **official** provider page (deprecations page, changelog, model card or announcement).
+        If you'd rather fix it yourself, edit `data/retirements.json` in a pull request (see CONTRIBUTING.md).
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What's wrong?
+      options:
+        - A retirement is missing
+        - A date or replacement is wrong
+        - A model was removed or swapped without notice (inference host)
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider or host
+      placeholder: openai, anthropic, google, azure, bedrock, deepinfra, ...
+    validations:
+      required: true
+  - type: textarea
+    id: ids
+    attributes:
+      label: Model ids
+      description: Every id the provider lists, including dated snapshots and aliases. One per line.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: shutdown
+    attributes:
+      label: Shutdown date
+      placeholder: YYYY-MM-DD (or "already removed on YYYY-MM-DD")
+  - type: input
+    id: replacement
+    attributes:
+      label: Replacement the provider recommends
+  - type: input
+    id: source
+    attributes:
+      label: Official source URL
+      description: For an unannounced removal, paste the error you got and when instead.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else

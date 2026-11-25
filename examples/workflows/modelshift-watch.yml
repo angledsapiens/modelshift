@@ -34,10 +34,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BODY: ${{ steps.scan.outputs.markdown }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           title="modelshift: models in this repo are retiring, removed or redirected"
-          n=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
-          if [ -n "$n" ]; then gh issue edit "$n" --body-file "$BODY"; else gh issue create --title "$title" --body-file "$BODY"; fi
+          n=$(gh issue list --state open --limit 500 --json number,title --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          # GitHub caps issue bodies at 65,536 characters; a repo with many model ids can exceed that.
+          body="$RUNNER_TEMP/modelshift-issue.md"
+          if [ "$(wc -c < "$BODY")" -gt 60000 ]; then
+            { head -c 60000 "$BODY"; printf '\n\n_Truncated. The full list is in the workflow run: %s_\n' "$RUN_URL"; } > "$body"
+          else cp "$BODY" "$body"; fi
+          if [ -n "$n" ]; then gh issue edit "$n" --body-file "$body"; else gh issue create --title "$title" --body-file "$body"; fi
 
       - name: Close the issue when all clear
         if: steps.scan.outputs.status == 'ok'
@@ -45,5 +51,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           title="modelshift: models in this repo are retiring, removed or redirected"
-          n=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          n=$(gh issue list --state open --limit 500 --json number,title --jq "map(select(.title == \"$title\")) | .[0].number // empty")
           [ -z "$n" ] || gh issue close "$n" --comment "All model ids are clear as of $(date -u +%F)."
