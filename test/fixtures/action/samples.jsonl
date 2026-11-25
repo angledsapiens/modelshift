@@ -1,0 +1,5 @@
+{"id":"capital-fr","messages":[{"role":"user","content":"What is the capital of France? Answer with one word."}],"temperature":0,"max_tokens":10,"expect":{"match":["paris"]}}
+{"id":"sum","messages":[{"role":"user","content":"What is 17 + 25? Answer with the number only."}],"temperature":0,"max_tokens":10,"expect":{"match":["\b42\b"]}}
+{"id":"json-person","messages":[{"role":"user","content":"Return only a JSON object with keys name and city for: Ana lives in Lisbon."}],"temperature":0,"max_tokens":60,"json":true,"expect":{"json":true,"match":["lisbon"]}}
+{"id":"sentiment","messages":[{"role":"user","content":"Is this review positive or negative? 'Terrible, broke after a day.' Answer with one word."}],"temperature":0,"max_tokens":10,"expect":{"match":["negative"]}}
+{"id":"translate","messages":[{"role":"user","content":"Translate 'good morning' into Spanish. Answer with the translation only."}],"temperature":0,"max_tokens":20,"expect":{"match":["buenos d"]}}

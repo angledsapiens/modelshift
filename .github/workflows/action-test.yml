@@ -1,0 +1,146 @@
+# Tests the modelshift GitHub Action (action.yml) on real GitHub runners, using this repo's own code.
+# Runs on pushes to the test-action branch, on pull requests that touch the action, and on demand.
+name: action test
+
+on:
+  push:
+    branches: [test-action]
+  pull_request:
+    paths: ["action.yml", "scripts/action.sh", ".github/workflows/action-test.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  scan-flagged:
+    name: scan finds retiring models (fail off)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: ms
+        uses: ./
+        with:
+          version: source
+          path: test/fixtures/sample-repo
+          fail: "false"
+      - name: Check outputs
+        env:
+          STATUS: ${{ steps.ms.outputs.status }}
+          MD: ${{ steps.ms.outputs.markdown }}
+        run: |
+          set -eu
+          echo "status=$STATUS markdown=$MD"
+          test "$STATUS" = flagged
+          test -s "$MD"
+          grep -q "Model retirement check" "$MD"
+          grep -q "need attention" "$MD"
+
+  scan-fails-step:
+    name: scan fails the step when flagged (fail on)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: ms
+        continue-on-error: true
+        uses: ./
+        with:
+          version: source
+          path: test/fixtures/sample-repo
+      - name: The action step must have failed
+        run: test "${{ steps.ms.outcome }}" = failure
+
+  scan-clean:
+    name: scan of a folder with no models is ok
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p "$RUNNER_TEMP/empty" && echo 'print("hello")' > "$RUNNER_TEMP/empty/app.py"
+      - id: ms
+        uses: ./
+        with:
+          version: source
+          path: ${{ runner.temp }}/empty
+      - run: test "${{ steps.ms.outputs.status }}" = ok
+
+  scan-live:
+    name: scan --live against DeepInfra's public list (no key)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: ms
+        uses: ./
+        with:
+          version: source
+          path: test/fixtures/sample-repo
+          live: "true"
+          providers: deepinfra
+          fail: "false"
+      - name: Check the live check ran
+        env:
+          MD: ${{ steps.ms.outputs.markdown }}
+        run: |
+          set -eu
+          cat "$MD"
+          test "${{ steps.ms.outputs.status }}" = flagged
+          if grep -q "Live check incomplete" "$MD"; then echo "::error::live check did not complete"; exit 1; fi
+
+  run-no-key:
+    name: run without an API key fails clearly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: ms
+        continue-on-error: true
+        uses: ./
+        with:
+          version: source
+          command: run
+          from: deepinfra:google/gemma-3-12b-it
+          to: deepinfra:google/gemma-3-4b-it
+          samples: test/fixtures/action/samples.jsonl
+          repeats: "2"
+        env:
+          DEEPINFRA_API_KEY: ""
+          DEEPINFRA_TOKEN: ""
+      - name: The action step must have failed
+        run: test "${{ steps.ms.outcome }}" = failure
+
+  run-gate:
+    name: run compares two models, uploads the report, comments on PRs
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.DEEPINFRA_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: env.HAS_KEY != 'true'
+        run: echo "::warning::DEEPINFRA_API_KEY secret not set; skipping the paid run test"
+      - id: ms
+        if: env.HAS_KEY == 'true'
+        uses: ./
+        with:
+          version: source
+          command: run
+          from: deepinfra:google/gemma-3-12b-it
+          to: deepinfra:google/gemma-3-4b-it
+          samples: test/fixtures/action/samples.jsonl
+          repeats: "2"
+          fail: "false"
+          comment: "true"
+        env:
+          DEEPINFRA_API_KEY: ${{ secrets.DEEPINFRA_API_KEY }}
+      - name: Check outputs
+        if: env.HAS_KEY == 'true'
+        env:
+          STATUS: ${{ steps.ms.outputs.status }}
+          MD: ${{ steps.ms.outputs.markdown }}
+          REPORT: ${{ steps.ms.outputs.report }}
+        run: |
+          set -eu
+          echo "status=$STATUS report=$REPORT"
+          test -n "$STATUS"
+          grep -q "modelshift migration check" "$MD"
+          grep -Eq "LIKELY SAFE|REVIEW BEFORE|NOT SAFE" "$MD"
+          test -s "$REPORT"
+          grep -q "<html" "$REPORT"
