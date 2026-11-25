@@ -89,7 +89,7 @@ runs:
     - if: ${{ always() && inputs.command == 'run' && steps.ms.outputs.report != '' }}
       uses: actions/upload-artifact@v4
       with:
-        name: modelshift-report
+        name: modelshift-report-${{ github.job }}
         path: ${{ runner.temp }}/modelshift/
     - if: ${{ always() && steps.ms.outputs.exit != '' && steps.ms.outputs.exit != '0' }}
       shell: bash

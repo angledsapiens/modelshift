@@ -45,7 +45,8 @@ case "$MS_COMMAND" in
     code=$?
     cat "$ERR" >&2
     [ "$code" = "1" ] && status=flagged
-    echo "report=$REPORT" >> "$GITHUB_OUTPUT"
+    # Only point at the report when it was written (not when modelshift couldn't run).
+    [ -s "$REPORT" ] && echo "report=$REPORT" >> "$GITHUB_OUTPUT"
     ;;
   *)
     echo "::error::unknown command '$MS_COMMAND' (use scan or run)"; exit 1 ;;
