@@ -12,6 +12,9 @@ Model providers retire models on a schedule, and inference hosts sometimes remov
 
 It runs on your machine with your own API keys. Nothing is sent anywhere except to the model providers you choose.
 
+<p align="center"><img src="https://raw.githubusercontent.com/angledsapiens/modelshift/master/docs/demo.svg" width="866" alt="Terminal recording of npx modelshift scan --live --probe: DeepInfra silently serves Llama-4-Scout when the app asks for Meta-Llama-3-8B-Instruct, and three models in the app are retiring, with their replacements and the file and line where each is used."></p>
+<p align="center"><sub>Real output from a small demo app, recorded 25 November 2026.</sub></p>
+
 ```bash
 npx modelshift scan                                    # which models in this repo are retiring? (no keys needed)
 npx modelshift capture logs.jsonl                      # turn logged requests into a test set
@@ -351,7 +354,7 @@ Newer models sometimes reject request settings that older ones accepted. When th
 
 | The model rejects | modelshift sends instead | What to change in your code |
 |---|---|---|
-| `temperature` (e.g. GPT-6 Luna only accepts its default of 1) | No temperature, so the model's default is used | Remove `temperature`, or set the value the model accepts. Answers may vary more between runs, which the report's noise checks take into account. |
+| `temperature` (e.g. GPT-6 Luna rejects 0 at its default reasoning effort) | No temperature, so the model's default is used | Remove `temperature`, or (GPT-6 Luna) send `reasoning_effort: "none"`, which allows it again. Either way answers may vary more between runs, which the report's noise checks take into account. |
 | `max_tokens` (it asks for `max_completion_tokens`) | `max_completion_tokens` with the same value | Rename the setting. On reasoning models the limit also covers hidden reasoning tokens, so raise it if answers come back cut short. |
 | Function tools on Chat Completions at the default reasoning effort | `reasoning_effort: "none"` on requests with tools | Send `reasoning_effort: "none"`, or move to the Responses API. The model may answer differently there, so test that separately. |
 

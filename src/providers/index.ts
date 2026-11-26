@@ -126,7 +126,7 @@ async function postJsonOnce(fetchFn: FetchFn, url: string, headers: Record<strin
 
 /**
  * Request settings a model rejects with HTTP 400, and the smallest change that makes the request work.
- * Newer models drop settings older ones accepted (e.g. gpt-6-luna rejects temperature 0, max_tokens,
+ * Newer models drop settings older ones accepted (e.g. gpt-6-luna rejects temperature 0 while reasoning, max_tokens,
  * and function tools on Chat Completions at its default reasoning effort). Instead of failing every call,
  * modelshift makes the change, retries, and reports it: the user's code will need the same change.
  */
@@ -136,7 +136,7 @@ export const COMPAT_FIXES: { id: string; matches: RegExp; applies: (b: Record<st
     matches: /'?temperature'? (does not support|is not supported)|unsupported (value|parameter): '?temperature/i,
     applies: (b) => b.temperature !== undefined,
     fix: (b) => delete b.temperature,
-    note: (b) => `rejects temperature ${b.temperature}, so the model's default temperature was used. Remove or change temperature in your code; answers may vary more from run to run.`,
+    note: (b) => `rejects temperature ${b.temperature}, so the model's default temperature was used. Remove or change temperature in your code (some reasoning models accept it again with reasoning turned off, e.g. OpenAI's reasoning_effort "none"); answers may vary more from run to run.`,
   },
   {
     id: "max_tokens",
